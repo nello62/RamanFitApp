@@ -249,13 +249,14 @@ uilabel(tabPeaks, 'Position', [5 94 100 18], 'Text', 'Background:');
 backgroundDD = uidropdown(tabPeaks, 'Position', [110 92 sidebarW-140 22], ...
     'Items', {'None','Constant','Linear','Quadratic','Cubic'}, 'Value', 'None');
 
-uibutton(tabPeaks, 'push', 'Position', [5 52 sidebarW-30 34], ...
+fitBtn = uibutton(tabPeaks, 'push', 'Position', [5 52 sidebarW-30 34], ...
     'Text', 'Fit', 'FontWeight', 'bold', 'ButtonPushedFcn', @(s,e) onFit());
 
 % ---- Results tab -----------------------------------------------------------
 resultsTable = uitable(tabResults, 'Position', [5 340 sidebarW-30 260], ...
-    'ColumnName', {'Peak','Shape','Center','FWHM','Height','Area'}, ...
-    'ColumnEditable', false(1,6), 'Data', cell(0,6));
+    'ColumnName', {'Peak','Shape','Center','+/-','FWHM','+/-','Height','+/-','Area'}, ...
+    'ColumnWidth', {40, 95, 60, 55, 60, 55, 60, 55, 65}, ...
+    'ColumnEditable', false(1,9), 'Data', cell(0,9));
 statsLabel = uilabel(tabResults, 'Position', [5 226 sidebarW-30 110], ...
     'Text', 'Fit statistics: -', 'VerticalAlignment', 'top');
 uibutton(tabResults, 'push', 'Position', [5 194 sidebarW-30 28], ...
@@ -393,7 +394,7 @@ end
         kids(kids == ax) = [];
         delete(kids);
         peaksTable.Data = cell(0,10);
-        resultsTable.Data = cell(0,6);
+        resultsTable.Data = cell(0,9);
         statsLabel.Text = 'Fit statistics: -';
         clearResiduals();
 
@@ -589,7 +590,7 @@ end
         clearTag('peakMarker');
         redrawWorking();
         peaksTable.Data = cell(0,10);
-        resultsTable.Data = cell(0,6);
+        resultsTable.Data = cell(0,9);
         statsLabel.Text = 'Fit statistics: -';
         clearResiduals();
         statusLabel.Text = 'Reset to raw spectrum; peaks and fit cleared.';
@@ -890,6 +891,11 @@ end
             return
         end
 
+        fitBtn.Enable = 'off';
+        fitBtn.Text = 'Fitting...';
+        statusLabel.Text = 'Fitting...';
+        drawnow;
+
         shapes = d(:,1);
         theta0 = [];
         lb = [];
@@ -966,9 +972,12 @@ end
             'MaxIterations', 10000, 'MaxFunctionEvaluations', 100000, ...
             'FunctionTolerance', 1e-10, 'StepTolerance', 1e-10, 'OptimalityTolerance', 1e-10);
         try
-            [thetaFit, resnorm] = lsqcurvefit(@(th, x) totalModel(th, x, shapes, extraSlot, nPeaks, nBgCoeffs), ...
+            [thetaFit, resnorm, ~, ~, ~, ~, jacobian] = lsqcurvefit( ...
+                @(th, x) totalModel(th, x, shapes, extraSlot, nPeaks, nBgCoeffs), ...
                 theta0, rawX(mask), workingY(mask), lb, ub, opts);
         catch ME
+            fitBtn.Enable = 'on';
+            fitBtn.Text = 'Fit';
             uialert(fig, ME.message, 'Fit error');
             return
         end
@@ -982,10 +991,38 @@ end
         sse = resnorm;  % unweighted chi-square: sum of squared residuals
         rms = sqrt(sse / N);
 
+        % Parameter standard errors from the linearized (Gaussian)
+        % approximation standard for nonlinear least squares: Cov(theta)
+        % = sigma^2 * (J'J)^-1, sigma^2 = SSE/dof, evaluated at the
+        % solution's Jacobian. RCOND guards the case where J'J is too
+        % ill-conditioned to invert meaningfully (near-degenerate/
+        % strongly correlated parameters, e.g. Fano/Pearson VII pinned
+        % near a bound) -- reported as NaN rather than a misleading or
+        % warning-spamming number. LSQCURVEFIT can also return a 0x0
+        % JACOBIAN outright (confirmed by testing: happens when a
+        % parameter's bounds are inconsistent, lb > ub -- it doesn't
+        % error in that case, it just reports back the starting point),
+        % which JTJ's own size wouldn't catch since it would then also be
+        % 0x0 and RCOND(0x0) doesn't reliably fail the check.
+        Jfull = full(jacobian);
+        if dof > 0 && isequal(size(Jfull), [N, nParams])
+            JTJ = Jfull' * Jfull;
+            if rcond(JTJ) > 1e-12
+                covar = (sse / dof) * (JTJ \ eye(size(JTJ)));
+                paramErrors = sqrt(max(diag(covar), 0))';
+            else
+                paramErrors = nan(1, nParams);
+            end
+        else
+            paramErrors = nan(1, nParams);
+        end
+        peakParamErrors = paramErrors(1:end-nBgCoeffs);
+        [I_err, FWHM_err, x0_err, ~] = unpackTheta(peakParamErrors, shapes, extraSlot, nPeaks);
+
         clearTag('fitLine');
         clearTag('peakComponentLine');
         clearTag('backgroundFitLine');
-        resData = cell(nPeaks, 6);
+        resData = cell(nPeaks, 9);
         newPeaksData = d;  % preserve each peak's Min/Max bound overrides; only the fitted columns below are overwritten
         hold(ax, 'on');
         if nBgCoeffs > 0
@@ -1005,7 +1042,7 @@ end
             % which is an analytic formula specific to the Gauss-Lorentz
             % blend and doesn't apply to Fano/Pearson VII/True Voigt).
             area_ = trapz(xi, comp);
-            resData(k,:) = {k, shapes{k}, x0(k), FWHM(k), I(k), area_};
+            resData(k,:) = {k, shapes{k}, x0(k), x0_err(k), FWHM(k), FWHM_err(k), I(k), I_err(k), area_};
             newPeaksData(k,[1 2 5 8]) = {shapes{k}, x0(k), FWHM(k), I(k)};
         end
         plot(ax, xi, totalCurve, 'r-', 'LineWidth', 1.5, 'PickableParts', 'none', 'Tag', 'fitLine');
@@ -1064,6 +1101,9 @@ end
         lastFitBgDegree = nBgCoeffs - 1;
         lastFitBgCoeffs = bgCoeffsFit;
         lastFitWorkingY = workingY;
+
+        fitBtn.Enable = 'on';
+        fitBtn.Text = 'Fit';
     end
 
 % -------------------------------------------------------------------------
@@ -1128,7 +1168,7 @@ end
         if isequal(f, 0)
             return
         end
-        varNames = {'Peak','Shape','Center','FWHM','Height','Area'};
+        varNames = {'Peak','Shape','Center','Center_err','FWHM','FWHM_err','Height','Height_err','Area'};
         T = cell2table(resultsTable.Data, 'VariableNames', varNames);
         try
             writetable(T, fullfile(p, f));
