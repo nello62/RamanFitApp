@@ -1,0 +1,1006 @@
+function RamanFitApp(filename)
+% RAMANFITAPP  Single-window app for fitting experimental Raman spectra.
+%
+%   RamanFitApp()
+%   RamanFitApp(filename)
+%
+%   Loads a two-column (wavenumber, intensity) text/CSV spectrum, offers
+%   baseline subtraction (BACKCOR) and Savitzky-Golay smoothing as
+%   preprocessing steps, then fits a sum of Gauss-Lorentz peaks (GAUSSLOR)
+%   to the result via LSQCURVEFIT. Each peak's shape (Gaussian, Lorentzian,
+%   or Pseudo-Voigt) is chosen independently from a per-row dropdown, so a
+%   fit can mix shapes -- the reason a custom multi-peak model is used here
+%   instead of PEAKFIT.M, which only supports one shared shape per call.
+%
+%   Input:
+%       filename - (optional) a two-column spectrum file to load
+%                  immediately. If omitted, opens empty with a
+%                  "Load spectrum..." button.
+%
+%   See also GAUSSLOR, AREAGL, BACKCOR, SGOLAYFILT, LSQCURVEFIT.
+%
+%   Author: Sebastiano Trusso
+%   Developed with the assistance of an AI coding tool (Claude, Anthropic), under the author's supervision and review.
+
+if nargin < 1
+    filename = '';
+end
+filename = char(filename);
+
+% GAUSSLOR/AREAGL/BACKCOR live in sibling folders under prog/, not on the
+% default path -- added relative to this file's own location so the app
+% still finds them regardless of the user's current MATLAB path or where
+% the repo is checked out.
+thisDir = fileparts(mfilename('fullpath'));
+addpath(fullfile(thisDir, '..', 'mymatfunctions'));
+addpath(fullfile(thisDir, '..', 'backcor'));
+
+% -------------------------------------------------------------------------
+% Session state (nested-function closures share these -- same single-file,
+% no-classdef pattern used by G_gaussian_viewer.m).
+% -------------------------------------------------------------------------
+rawX = []; rawY = [];
+workingY = [];
+currentBaseline = [];
+currentBaselineMask = [];
+currentSmoothed = [];
+pickArmed = false;
+xi = [];  % dense grid for smooth fit-curve/component plotting
+
+% Analysis range (wavenumber window), set by dragging on the plot or
+% typing into the Min/Max fields. Empty = no restriction (use the full
+% spectrum) -- the default at load and after "Clear range".
+rangeXMin = [];
+rangeXMax = [];
+rangeArmed = false;
+isDragging = false;
+dragStartX = [];
+
+% -------------------------------------------------------------------------
+% Find the active monitor, then build the window in one atomic call (same
+% "throwaway invisible figure" trick as G_gaussian_viewer.m).
+% -------------------------------------------------------------------------
+winW = 1150;
+winH = 890;
+tmpFig = figure('Visible', 'off');
+drawnow;
+tmpPos = tmpFig.Position;
+delete(tmpFig);
+
+mp = get(groot, 'MonitorPositions');
+monIdx = find(tmpPos(1) >= mp(:,1) & tmpPos(1) <= mp(:,1) + mp(:,3) & ...
+              tmpPos(2) >= mp(:,2) & tmpPos(2) <= mp(:,2) + mp(:,4), 1);
+if isempty(monIdx), monIdx = 1; end
+scr = mp(monIdx, :);
+
+winX = scr(1) + 20;
+winY = max(scr(2) + 40, scr(2) + scr(4) - winH - 80);
+
+fig = uifigure('Name', 'RamanFitApp', 'Position', [winX winY winW winH]);
+fig.CloseRequestFcn = @(src, evt) delete(fig);
+
+% -------------------------------------------------------------------------
+% Window layout: bottom status strip, left sidebar, central spectrum view.
+% -------------------------------------------------------------------------
+sidebarW = 620;  % wide enough for the Peaks table's per-parameter Min/Max bound columns
+
+statusLabel = uilabel(fig, 'Position', [10 8 winW-20 28], ...
+    'Text', 'No spectrum loaded.', 'FontColor', [0.35 0.35 0.35]);
+
+sidebar = uipanel(fig, 'Position', [0 40 sidebarW winH-40], 'BorderType', 'line');
+
+% Main spectrum view on top, a shorter residuals strip below it, sharing
+% the x-axis (linked so zooming/panning one moves the other) -- residuals
+% are only populated after a Fit, empty otherwise.
+residualsAx = uiaxes(fig, 'Position', [sidebarW+10 45 winW-sidebarW-20 150]);
+xlabel(residualsAx, 'Raman shift (cm^{-1})');
+ylabel(residualsAx, 'Residual');
+grid(residualsAx, 'on');
+
+ax = uiaxes(fig, 'Position', [sidebarW+10 210 winW-sidebarW-20 winH-260]);
+ax.Toolbar.Visible = 'on';
+xlabel(ax, 'Raman shift (cm^{-1})');
+ylabel(ax, 'Intensity (a.u.)');
+grid(ax, 'on');
+linkaxes([ax, residualsAx], 'x');
+% Clicking/dragging the axes places a peak (when "Add peak" is armed) or
+% starts/extends a range selection (when "Select range" is armed). All
+% plotted lines get PickableParts='none' so a click anywhere in the axes
+% -- even on top of a line -- reaches this callback instead of being
+% consumed by the line's own hit-testing.
+ax.ButtonDownFcn = @(s,e) onAxesClicked(e);
+
+uibutton(sidebar, 'push', 'Position', [10 810 sidebarW-20 30], ...
+    'Text', 'Load spectrum...', 'FontWeight', 'bold', ...
+    'ButtonPushedFcn', @(s,e) onLoadSpectrum());
+lblFile     = uilabel(sidebar, 'Position', [10 786 sidebarW-20 18], 'Text', 'File: -');
+lblNPoints  = uilabel(sidebar, 'Position', [10 768 sidebarW-20 18], 'Text', 'Points: -');
+
+% ---- Analysis range (shared by baseline + fit) ---------------------------
+uilabel(sidebar, 'Position', [10 740 sidebarW-20 18], 'Text', 'Analysis range (cm^{-1}):', 'FontWeight', 'bold');
+uilabel(sidebar, 'Position', [10 712 34 18], 'Text', 'Min:');
+rangeMinField = uieditfield(sidebar, 'numeric', 'Position', [46 710 120 22], ...
+    'ValueChangedFcn', @(s,e) onRangeFieldChanged());
+uilabel(sidebar, 'Position', [176 712 34 18], 'Text', 'Max:');
+rangeMaxField = uieditfield(sidebar, 'numeric', 'Position', [212 710 120 22], ...
+    'ValueChangedFcn', @(s,e) onRangeFieldChanged());
+selectRangeBtn = uibutton(sidebar, 'push', 'Position', [10 676 (sidebarW-30)/2 28], ...
+    'Text', 'Select range (drag on plot)', 'ButtonPushedFcn', @(s,e) onSelectRangeBtn());
+uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 676 (sidebarW-30)/2 28], ...
+    'Text', 'Clear range', 'ButtonPushedFcn', @(s,e) onClearRange());
+uibutton(sidebar, 'push', 'Position', [10 642 (sidebarW-30)/2 28], ...
+    'Text', 'Zoom to range', 'ButtonPushedFcn', @(s,e) onZoomToRange());
+uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 642 (sidebarW-30)/2 28], ...
+    'Text', 'Show full spectrum', 'ButtonPushedFcn', @(s,e) onShowFullSpectrum());
+
+tg = uitabgroup(sidebar, 'Position', [5 10 sidebarW-10 618]);
+tabPreprocess = uitab(tg, 'Title', 'Preprocess');
+tabPeaks      = uitab(tg, 'Title', 'Peaks');
+tabResults    = uitab(tg, 'Title', 'Results');
+
+% ---- Preprocess tab ------------------------------------------------------
+uilabel(tabPreprocess, 'Position', [5 560 sidebarW-30 18], 'Text', 'Baseline', 'FontWeight', 'bold');
+uilabel(tabPreprocess, 'Position', [5 534 60 18], 'Text', 'Method:');
+baselineMethodDD = uidropdown(tabPreprocess, 'Position', [65 532 sidebarW-95 22], ...
+    'Items', {'backcor','airPLS'}, 'Value', 'backcor', ...
+    'ValueChangedFcn', @(s,e) onBaselineMethodChanged());
+
+% backcor parameters (visible when Method = backcor)
+lblOrder = uilabel(tabPreprocess, 'Position', [5 506 110 18], 'Text', 'Order:');
+baselineOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 504 sidebarW-170 22], ...
+    'Value', 5, 'Limits', [0 Inf], 'RoundFractionalValues', 'on');
+lblThreshold = uilabel(tabPreprocess, 'Position', [5 478 110 18], 'Text', 'Threshold:');
+baselineThresholdField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 476 sidebarW-170 22], 'Value', 0.1);
+lblCostFn = uilabel(tabPreprocess, 'Position', [5 450 110 18], 'Text', 'Cost function:');
+baselineFctDD = uidropdown(tabPreprocess, 'Position', [140 448 sidebarW-170 22], ...
+    'Items', {'sh','ah','stq','atq'}, 'Value', 'atq');
+backcorHandles = [lblOrder, baselineOrderField, lblThreshold, baselineThresholdField, lblCostFn, baselineFctDD];
+
+% airPLS parameters (visible when Method = airPLS), packed two-per-row
+% into the same vertical footprint as the backcor controls above.
+lblLambda = uilabel(tabPreprocess, 'Position', [5 506 55 18], 'Text', 'Lambda:');
+airplsLambdaField = uieditfield(tabPreprocess, 'numeric', 'Position', [62 504 110 22], 'Value', 1e7);
+lblDiffOrder = uilabel(tabPreprocess, 'Position', [180 506 60 18], 'Text', 'Diff ord:');
+airplsOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [237 504 sidebarW-30-232 22], ...
+    'Value', 2, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
+lblEdgeWt = uilabel(tabPreprocess, 'Position', [5 478 55 18], 'Text', 'Edge wt:');
+airplsWepField = uieditfield(tabPreprocess, 'numeric', 'Position', [62 476 110 22], ...
+    'Value', 0.1, 'Limits', [0 1]);
+lblAsym = uilabel(tabPreprocess, 'Position', [180 478 60 18], 'Text', 'p (asym):');
+airplsPField = uieditfield(tabPreprocess, 'numeric', 'Position', [237 476 sidebarW-30-232 22], ...
+    'Value', 0.05, 'Limits', [0 1]);
+lblMaxIter = uilabel(tabPreprocess, 'Position', [5 450 70 18], 'Text', 'Max iter:');
+airplsIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [80 448 100 22], ...
+    'Value', 20, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
+airplsHandles = [lblLambda, airplsLambdaField, lblDiffOrder, airplsOrderField, ...
+    lblEdgeWt, airplsWepField, lblAsym, airplsPField, lblMaxIter, airplsIterField];
+set(airplsHandles, 'Visible', 'off');
+
+uibutton(tabPreprocess, 'push', 'Position', [5 416 sidebarW-30 28], ...
+    'Text', 'Preview baseline', 'ButtonPushedFcn', @(s,e) onPreviewBaseline());
+uibutton(tabPreprocess, 'push', 'Position', [5 382 sidebarW-30 28], ...
+    'Text', 'Subtract baseline', 'ButtonPushedFcn', @(s,e) onSubtractBaseline());
+
+uilabel(tabPreprocess, 'Position', [5 342 sidebarW-30 18], 'Text', 'Smoothing (Savitzky-Golay)', 'FontWeight', 'bold');
+uilabel(tabPreprocess, 'Position', [5 316 110 18], 'Text', 'Window length:');
+smoothWinField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 314 sidebarW-170 22], ...
+    'Value', 11, 'Limits', [3 Inf], 'RoundFractionalValues', 'on');
+uilabel(tabPreprocess, 'Position', [5 288 110 18], 'Text', 'Poly order:');
+smoothOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 286 sidebarW-170 22], ...
+    'Value', 3, 'Limits', [0 Inf], 'RoundFractionalValues', 'on');
+uibutton(tabPreprocess, 'push', 'Position', [5 254 sidebarW-30 28], ...
+    'Text', 'Preview smoothing', 'ButtonPushedFcn', @(s,e) onPreviewSmoothing());
+uibutton(tabPreprocess, 'push', 'Position', [5 220 sidebarW-30 28], ...
+    'Text', 'Apply smoothing', 'ButtonPushedFcn', @(s,e) onApplySmoothing());
+
+uibutton(tabPreprocess, 'push', 'Position', [5 174 sidebarW-30 30], ...
+    'Text', 'Reset to raw', 'ButtonPushedFcn', @(s,e) onResetToRaw());
+
+% ---- Peaks tab -------------------------------------------------------------
+uilabel(tabPeaks, 'Position', [5 560 sidebarW-30 34], 'WordWrap', 'on', ...
+    'Text', 'Click "Add peak", then click on the plot to place it. Min/Max columns are optional per-parameter fit bounds -- leave blank to use the default bounds.');
+addPeakBtn = uibutton(tabPeaks, 'push', 'Position', [5 528 sidebarW-30 28], ...
+    'Text', 'Add peak', 'ButtonPushedFcn', @(s,e) onAddPeakBtn());
+peaksTable = uitable(tabPeaks, 'Position', [5 200 sidebarW-30 320], ...
+    'ColumnName', {'Shape','Center','C.Min','C.Max','FWHM','F.Min','F.Max','Height','H.Min','H.Max'}, ...
+    'ColumnFormat', {{'Gaussian','Lorentzian','Pseudo-Voigt','Fano','Pearson VII','True Voigt'}, ...
+        'numeric','numeric','numeric','numeric','numeric','numeric','numeric','numeric','numeric'}, ...
+    'ColumnWidth', {95, 55, 50, 50, 55, 50, 50, 55, 50, 50}, ...
+    'ColumnEditable', true(1,10), 'Data', cell(0,10));
+uibutton(tabPeaks, 'push', 'Position', [5 166 sidebarW-30 28], ...
+    'Text', 'Remove selected peak', 'ButtonPushedFcn', @(s,e) onRemovePeak());
+uibutton(tabPeaks, 'push', 'Position', [5 132 sidebarW-30 28], ...
+    'Text', 'Clear all peaks', 'ButtonPushedFcn', @(s,e) onClearPeaks());
+
+uilabel(tabPeaks, 'Position', [5 94 100 18], 'Text', 'Background:');
+backgroundDD = uidropdown(tabPeaks, 'Position', [110 92 sidebarW-140 22], ...
+    'Items', {'None','Constant','Linear','Quadratic','Cubic'}, 'Value', 'None');
+
+uibutton(tabPeaks, 'push', 'Position', [5 52 sidebarW-30 34], ...
+    'Text', 'Fit', 'FontWeight', 'bold', 'ButtonPushedFcn', @(s,e) onFit());
+
+% ---- Results tab -----------------------------------------------------------
+resultsTable = uitable(tabResults, 'Position', [5 340 sidebarW-30 260], ...
+    'ColumnName', {'Peak','Shape','Center','FWHM','Height','Area'}, ...
+    'ColumnEditable', false(1,6), 'Data', cell(0,6));
+statsLabel = uilabel(tabResults, 'Position', [5 226 sidebarW-30 110], ...
+    'Text', 'Fit statistics: -', 'VerticalAlignment', 'top');
+uibutton(tabResults, 'push', 'Position', [5 194 sidebarW-30 28], ...
+    'Text', 'Export results (CSV)...', 'ButtonPushedFcn', @(s,e) onExportResults());
+uibutton(tabResults, 'push', 'Position', [5 160 sidebarW-30 28], ...
+    'Text', 'Save fit figure...', 'ButtonPushedFcn', @(s,e) onSaveFigure());
+
+% -------------------------------------------------------------------------
+if ~isempty(filename)
+    loadFile(filename);
+end
+
+% =========================================================================
+%  Nested callback/helper functions (share the outer function's workspace)
+% =========================================================================
+
+    function [f, p] = pickOpenFile(filterSpec, dlgTitle)
+    % Wraps UIGETFILE: on macOS, a uifigure's CEF-based window can end up
+    % in front of the native file-picker dialog it just triggered, and
+    % since the uifigure is blocked waiting for the (invisible, behind
+    % it) dialog, there is then no way to move it out of the way either.
+    % Minimising the main window for the duration of the dialog avoids
+    % this entirely (fix carried over from G_gaussian_viewer.m, where it
+    % was found and debugged).
+        prevState = fig.WindowState;
+        if strcmp(prevState, 'minimized')
+            prevState = 'normal';
+        end
+        fig.WindowState = 'minimized';
+        drawnow;
+        try
+            [f, p] = uigetfile(filterSpec, dlgTitle);
+        catch ME
+            fig.WindowState = prevState;
+            drawnow;
+            rethrow(ME);
+        end
+        fig.WindowState = prevState;
+        drawnow;
+    end
+
+% -------------------------------------------------------------------------
+    function [f, p] = pickSaveFile(filterSpec, dlgTitle, defaultName)
+        prevState = fig.WindowState;
+        if strcmp(prevState, 'minimized')
+            prevState = 'normal';
+        end
+        fig.WindowState = 'minimized';
+        drawnow;
+        try
+            [f, p] = uiputfile(filterSpec, dlgTitle, defaultName);
+        catch ME
+            fig.WindowState = prevState;
+            drawnow;
+            rethrow(ME);
+        end
+        fig.WindowState = prevState;
+        drawnow;
+    end
+
+% -------------------------------------------------------------------------
+    function clearTag(tagName)
+        delete(findobj(ax, 'Tag', tagName));
+    end
+
+% -------------------------------------------------------------------------
+    function clearResiduals()
+    % CLA alone does not fully clear a uiaxes (same issue documented and
+    % fixed in G_gaussian_viewer.m) -- FINDALL recurses into every
+    % descendant, with the axes itself filtered back out before deleting.
+        kids = findall(residualsAx);
+        kids(kids == residualsAx) = [];
+        delete(kids);
+    end
+
+% -------------------------------------------------------------------------
+    function onLoadSpectrum()
+        [f, p] = pickOpenFile({'*.txt;*.csv;*.dat','Text/CSV spectra (*.txt,*.csv,*.dat)'; '*.*','All files'}, ...
+            'Select a Raman spectrum');
+        if isequal(f, 0)
+            return
+        end
+        try
+            loadFile(fullfile(p, f));
+        catch ME
+            uialert(fig, ME.message, 'Load error');
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function loadFile(f)
+        data = readmatrix(f);
+        if size(data, 2) < 2
+            error('RamanFitApp:badFile', 'Expected at least two columns (wavenumber, intensity) in %s.', f);
+        end
+        [rawX, ord] = sort(data(:,1));
+        rawX = rawX(:);
+        rawY = data(ord, 2);
+        rawY = rawY(:);
+        workingY = rawY;
+        currentBaseline = [];
+        currentBaselineMask = [];
+        currentSmoothed = [];
+        rangeXMin = [];
+        rangeXMax = [];
+        rangeMinField.Value = min(rawX);
+        rangeMaxField.Value = max(rawX);
+        xi = linspace(min(rawX), max(rawX), 500)';
+
+        kids = findall(ax);
+        kids(kids == ax) = [];
+        delete(kids);
+        peaksTable.Data = cell(0,10);
+        resultsTable.Data = cell(0,6);
+        statsLabel.Text = 'Fit statistics: -';
+        clearResiduals();
+
+        plot(ax, rawX, rawY, 'Color', [0.75 0.75 0.75], 'LineWidth', 1, ...
+            'PickableParts', 'none', 'Tag', 'rawLine');
+        hold(ax, 'on');
+        redrawWorking();
+        hold(ax, 'off');
+        % LINKAXES (set up once at startup, before any data exists) locks
+        % XLimMode to 'manual' on both axes, so a freshly loaded spectrum
+        % does NOT auto-scale into view -- the view stays at whatever the
+        % empty default axes range was until the view is set explicitly.
+        ax.XLim = [min(rawX), max(rawX)];
+
+        [~, fname_] = fileparts(f);
+        lblFile.Text = sprintf('File: %s', fname_);
+        lblNPoints.Text = sprintf('Points: %d', numel(rawX));
+        statusLabel.Text = sprintf('Loaded %s (%d points).', fname_, numel(rawX));
+    end
+
+% -------------------------------------------------------------------------
+    function redrawWorking()
+        clearTag('workingLine');
+        plot(ax, rawX, workingY, 'b-', 'LineWidth', 1.2, ...
+            'PickableParts', 'none', 'Tag', 'workingLine');
+    end
+
+% -------------------------------------------------------------------------
+    function onBaselineMethodChanged()
+        if strcmp(baselineMethodDD.Value, 'airPLS')
+            set(backcorHandles, 'Visible', 'off');
+            set(airplsHandles, 'Visible', 'on');
+        else
+            set(airplsHandles, 'Visible', 'off');
+            set(backcorHandles, 'Visible', 'on');
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onPreviewBaseline()
+        if isempty(rawX)
+            return
+        end
+        mask = rangeMask();
+        try
+            if strcmp(baselineMethodDD.Value, 'airPLS')
+                % airPLS takes a ROW vector (1 spectrum per row); our data
+                % is stored as columns throughout, so transpose in/out.
+                [~, z] = airPLS(workingY(mask)', airplsLambdaField.Value, ...
+                    airplsOrderField.Value, airplsWepField.Value, ...
+                    airplsPField.Value, airplsIterField.Value);
+                currentBaseline = z';
+            else
+                currentBaseline = backcor(rawX(mask), workingY(mask), baselineOrderField.Value, ...
+                    baselineThresholdField.Value, baselineFctDD.Value);
+            end
+        catch ME
+            uialert(fig, ME.message, sprintf('%s error', baselineMethodDD.Value));
+            return
+        end
+        currentBaselineMask = mask;
+        clearTag('baselineLine');
+        hold(ax, 'on');
+        plot(ax, rawX(mask), currentBaseline, 'Color', [0.85 0.45 0.05], 'LineStyle', '--', ...
+            'LineWidth', 1.2, 'PickableParts', 'none', 'Tag', 'baselineLine');
+        hold(ax, 'off');
+        statusLabel.Text = 'Baseline computed (preview only, not yet subtracted).';
+    end
+
+% -------------------------------------------------------------------------
+    function onSubtractBaseline()
+        if isempty(rawX)
+            return
+        end
+        if isempty(currentBaseline)
+            onPreviewBaseline();
+            if isempty(currentBaseline)
+                return
+            end
+        end
+        workingY(currentBaselineMask) = workingY(currentBaselineMask) - currentBaseline;
+        currentBaseline = [];
+        currentBaselineMask = [];
+        clearTag('baselineLine');
+        % A pending (uncommitted) smoothing preview was computed against
+        % the OLD workingY -- now stale, since workingY just changed.
+        currentSmoothed = [];
+        clearTag('smoothPreviewLine');
+        redrawWorking();
+        statusLabel.Text = 'Baseline subtracted.';
+    end
+
+% -------------------------------------------------------------------------
+    function onPreviewSmoothing()
+        if isempty(rawX)
+            return
+        end
+        winLen = round(smoothWinField.Value);
+        if mod(winLen, 2) == 0
+            winLen = winLen + 1;
+            smoothWinField.Value = winLen;
+        end
+        try
+            currentSmoothed = sgolayfilt(workingY, smoothOrderField.Value, winLen);
+        catch ME
+            uialert(fig, ME.message, 'sgolayfilt error');
+            return
+        end
+        clearTag('smoothPreviewLine');
+        hold(ax, 'on');
+        plot(ax, rawX, currentSmoothed, 'Color', [0.55 0.25 0.65], 'LineStyle', '--', ...
+            'LineWidth', 1.2, 'PickableParts', 'none', 'Tag', 'smoothPreviewLine');
+        hold(ax, 'off');
+        statusLabel.Text = 'Smoothing computed (preview only, not yet applied).';
+    end
+
+% -------------------------------------------------------------------------
+    function onApplySmoothing()
+        if isempty(rawX)
+            return
+        end
+        if isempty(currentSmoothed)
+            onPreviewSmoothing();
+            if isempty(currentSmoothed)
+                return
+            end
+        end
+        workingY = currentSmoothed;
+        currentSmoothed = [];
+        clearTag('smoothPreviewLine');
+        % A pending (uncommitted) baseline preview was computed against
+        % the OLD workingY -- now stale, since workingY just changed.
+        currentBaseline = [];
+        currentBaselineMask = [];
+        clearTag('baselineLine');
+        redrawWorking();
+        statusLabel.Text = 'Smoothing applied.';
+    end
+
+% -------------------------------------------------------------------------
+    function onResetToRaw()
+        if isempty(rawX)
+            return
+        end
+        workingY = rawY;
+        currentBaseline = [];
+        currentSmoothed = [];
+        clearTag('baselineLine');
+        clearTag('smoothPreviewLine');
+        clearTag('fitLine');
+        clearTag('peakComponentLine');
+        clearTag('backgroundFitLine');
+        clearTag('peakMarker');
+        redrawWorking();
+        peaksTable.Data = cell(0,10);
+        resultsTable.Data = cell(0,6);
+        statsLabel.Text = 'Fit statistics: -';
+        clearResiduals();
+        statusLabel.Text = 'Reset to raw spectrum; peaks and fit cleared.';
+    end
+
+% -------------------------------------------------------------------------
+    function onAddPeakBtn()
+        pickArmed = ~pickArmed;
+        if pickArmed
+            addPeakBtn.Text = 'Click on plot to place... (click again to cancel)';
+        else
+            addPeakBtn.Text = 'Add peak';
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onAxesClicked(evt)
+        if isempty(rawX)
+            return
+        end
+        if rangeArmed
+            dragStartX = evt.IntersectionPoint(1);
+            isDragging = true;
+            fig.WindowButtonMotionFcn = @(s,e) onRangeDragMotion();
+            fig.WindowButtonUpFcn = @(s,e) onRangeDragUp();
+            return
+        end
+        if ~pickArmed
+            return
+        end
+        xClick = evt.IntersectionPoint(1);
+        [~, nearIdx] = min(abs(rawX - xClick));
+        heightGuess = workingY(nearIdx);
+        fwhmGuess = range(rawX) * 0.01;
+
+        d = peaksTable.Data;
+        d(end+1, :) = {'Gaussian', xClick, [], [], fwhmGuess, [], [], heightGuess, [], []};
+        peaksTable.Data = d;
+
+        pickArmed = false;
+        addPeakBtn.Text = 'Add peak';
+        redrawPeakMarkers();
+        statusLabel.Text = sprintf('Peak added at %.1f cm^{-1}.', xClick);
+    end
+
+% -------------------------------------------------------------------------
+    function onSelectRangeBtn()
+        rangeArmed = ~rangeArmed;
+        if rangeArmed
+            selectRangeBtn.Text = 'Drag on plot... (click to cancel)';
+        else
+            selectRangeBtn.Text = 'Select range (drag on plot)';
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onRangeDragMotion()
+    % Fired continuously by the FIGURE while the mouse moves anywhere over
+    % it (only wired during an active drag, see onAxesClicked). AX.CurrentPoint
+    % is a live read-only property that tracks the pointer whenever it is
+    % over that axes, in data units -- simpler and more reliable here than
+    % converting the motion event's figure-pixel coordinates by hand.
+        if ~isDragging
+            return
+        end
+        xNow = ax.CurrentPoint(1,1);
+        redrawRangeOverlay(min(dragStartX, xNow), max(dragStartX, xNow));
+    end
+
+% -------------------------------------------------------------------------
+    function onRangeDragUp()
+        if ~isDragging
+            return
+        end
+        isDragging = false;
+        fig.WindowButtonMotionFcn = '';
+        fig.WindowButtonUpFcn = '';
+        xEnd = ax.CurrentPoint(1,1);
+        rangeArmed = false;
+        selectRangeBtn.Text = 'Select range (drag on plot)';
+        applyRangeSelection(min(dragStartX, xEnd), max(dragStartX, xEnd));
+    end
+
+% -------------------------------------------------------------------------
+    function onRangeFieldChanged()
+        if isempty(rawX)
+            return
+        end
+        applyRangeSelection(rangeMinField.Value, rangeMaxField.Value);
+    end
+
+% -------------------------------------------------------------------------
+    function onClearRange()
+        rangeXMin = [];
+        rangeXMax = [];
+        rangeMinField.Value = min(rawX);
+        rangeMaxField.Value = max(rawX);
+        clearTag('rangeLine');
+        statusLabel.Text = 'Analysis range cleared (using full spectrum).';
+    end
+
+% -------------------------------------------------------------------------
+    function applyRangeSelection(x1, x2)
+    % Single entry point for "a range has been chosen", regardless of
+    % whether it came from a mouse drag (untestable headlessly -- AX.CurrentPoint
+    % only updates for a real pointer over a rendered, visible axes) or
+    % from typing into the Min/Max fields directly (fully scriptable, used
+    % to verify this function end-to-end).
+        if isempty(rawX)
+            return
+        end
+        x1 = max(x1, min(rawX));
+        x2 = min(x2, max(rawX));
+        if x2 <= x1
+            return
+        end
+        rangeXMin = x1;
+        rangeXMax = x2;
+        rangeMinField.Value = x1;
+        rangeMaxField.Value = x2;
+        redrawRangeOverlay(x1, x2);
+        statusLabel.Text = sprintf('Analysis range set to %.1f - %.1f cm^{-1}.', x1, x2);
+    end
+
+% -------------------------------------------------------------------------
+    function redrawRangeOverlay(x1, x2)
+        clearTag('rangeLine');
+        xline(ax, x1, '--', 'Color', [0.15 0.55 0.25], 'LineWidth', 1.2, ...
+            'PickableParts', 'none', 'Tag', 'rangeLine');
+        xline(ax, x2, '--', 'Color', [0.15 0.55 0.25], 'LineWidth', 1.2, ...
+            'PickableParts', 'none', 'Tag', 'rangeLine');
+    end
+
+% -------------------------------------------------------------------------
+    function mask = rangeMask()
+    % True for data points inside the current analysis range, or all-true
+    % when no range is set (the default -- operate on the full spectrum).
+        if isempty(rangeXMin)
+            mask = true(size(rawX));
+        else
+            mask = rawX >= rangeXMin & rawX <= rangeXMax;
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function redrawPeakMarkers()
+        clearTag('peakMarker');
+        d = peaksTable.Data;
+        if isempty(d)
+            return
+        end
+        centers = cell2mat(d(:,2));
+        heights = cell2mat(d(:,8));
+        hold(ax, 'on');
+        plot(ax, centers, heights, 'kv', 'MarkerFaceColor', [0.2 0.2 0.2], ...
+            'MarkerSize', 6, 'PickableParts', 'none', 'Tag', 'peakMarker');
+        hold(ax, 'off');
+    end
+
+% -------------------------------------------------------------------------
+    function onRemovePeak()
+        rows = peaksTable.Selection;
+        if isempty(rows)
+            return
+        end
+        d = peaksTable.Data;
+        d(unique(rows(:,1)), :) = [];
+        peaksTable.Data = d;
+        redrawPeakMarkers();
+    end
+
+% -------------------------------------------------------------------------
+    function onClearPeaks()
+        peaksTable.Data = cell(0,10);
+        clearTag('peakMarker');
+        clearTag('fitLine');
+        clearTag('peakComponentLine');
+        clearTag('backgroundFitLine');
+        clearResiduals();
+        statsLabel.Text = 'Fit statistics: -';
+    end
+
+% -------------------------------------------------------------------------
+    function onZoomToRange()
+        if isempty(rangeXMin)
+            uialert(fig, 'Select or type an analysis range first.', 'No range set');
+            return
+        end
+        ax.XLim = [rangeXMin, rangeXMax];
+    end
+
+% -------------------------------------------------------------------------
+    function onShowFullSpectrum()
+        if isempty(rawX)
+            return
+        end
+        ax.XLim = [min(rawX), max(rawX)];
+    end
+
+% -------------------------------------------------------------------------
+    function y = peakModel(x, shape, I, FWHM, x0, extra)
+    % Evaluates one peak. EXTRA is the single free shape-specific
+    % parameter for shapes that need one (meaning depends on SHAPE);
+    % ignored by Gaussian/Lorentzian, which have no extra parameter.
+        switch shape
+            case 'Lorentzian'
+                y = gausslor(x, I, 1, FWHM, x0);
+            case 'Pseudo-Voigt'
+                y = gausslor(x, I, extra, FWHM, x0);  % extra = Lorentzian fraction, in [0,1]
+            case 'Fano'
+                y = fanoLineshape(x, I, FWHM, x0, extra);  % extra = q (asymmetry)
+            case 'Pearson VII'
+                y = pearson7Lineshape(x, I, FWHM, x0, extra);  % extra = m (shape exponent)
+            case 'True Voigt'
+                y = trueVoigtLineshape(x, I, FWHM, extra, x0);  % extra = FWHM_L (FWHM is FWHM_G)
+            otherwise % 'Gaussian'
+                y = gausslor(x, I, 0, FWHM, x0);
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function y = fanoLineshape(x, I, FWHM, x0, q)
+    % Breit-Wigner-Fano lineshape. Same reduced-abscissa convention as
+    % GAUSSLOR (r1 = (x-x0)/FWHM) so FWHM means the same thing across
+    % every shape in this app. As q -> +-Inf this reduces to exactly the
+    % same Lorentzian GAUSSLOR produces for Lor=1 (verified in testing).
+        r1 = (x - x0) ./ FWHM;
+        y = I .* (1 + 2*r1/q).^2 ./ (1 + 4*r1.^2);
+    end
+
+% -------------------------------------------------------------------------
+    function y = pearson7Lineshape(x, I, FWHM, x0, m)
+    % Pearson VII lineshape (normalized so FWHM has its usual meaning
+    % regardless of m). m=1 reduces to exactly the same Lorentzian
+    % GAUSSLOR produces for Lor=1; m -> Inf reduces to exactly the same
+    % Gaussian GAUSSLOR produces for Lor=0 (both verified in testing).
+        r1 = (x - x0) ./ FWHM;
+        y = I ./ (1 + (2^(1/m) - 1) * 4*r1.^2).^m;
+    end
+
+% -------------------------------------------------------------------------
+    function y = trueVoigtLineshape(x, I, FWHM_G, FWHM_L, x0)
+    % True Voigt profile: the actual convolution of a Gaussian (width
+    % FWHM_G) and a Lorentzian (width FWHM_L), computed by direct
+    % numerical integration (MATLAB's ERFC does not accept complex
+    % arguments in this release, ruling out the usual closed-form route
+    % via the Faddeeva function -- confirmed by testing before writing
+    % this). Normalized so the peak HEIGHT at x=x0 equals I, consistent
+    % with how every other shape here is parameterized (by height, not
+    % area) -- done by dividing by the same convolution evaluated at
+    % x=x0, rather than by the analytic unit-area normalization those
+    % kernels would otherwise carry.
+        sigma = max(FWHM_G, eps) / (2*sqrt(2*log(2)));
+        gamma = max(FWHM_L, eps) / 2;
+        % When one width is much smaller than the other, its kernel acts
+        % as a near-delta function -- convolving with it just returns the
+        % OTHER pure shape. A fixed-resolution integration grid cannot
+        % resolve a kernel that narrow relative to the other's span
+        % (verified empirically: an under-resolved grid silently produces
+        % wildly wrong values, not an error), so this regime is handled
+        % as an explicit limit instead of by brute-force integration.
+        if sigma >= 20 * gamma
+            y = gausslor(x, I, 0, FWHM_G, x0);
+            return
+        elseif gamma >= 20 * sigma
+            y = gausslor(x, I, 1, FWHM_L, x0);
+            return
+        end
+        tMax = 10 * max(sigma, gamma);
+        t = linspace(-tMax, tMax, 1600);  % converged to <0.2% up to a 20:1 width ratio (tested)
+        G = exp(-(t.^2) / (2*sigma^2));
+        xr = x(:) - x0;
+        Lq = gamma ./ ((xr - t).^2 + gamma^2);
+        L0 = gamma ./ (t.^2 + gamma^2);
+        numer = trapz(t, G .* Lq, 2);
+        denom = trapz(t, G .* L0, 2);
+        y = I * numer ./ denom;
+        y = reshape(y, size(x));
+    end
+
+% -------------------------------------------------------------------------
+    function v = resolveBound(userVal, defaultVal)
+    % A blank/uncleared Min or Max cell reads back as [] (never touched)
+    % or NaN (cleared by the user) -- both mean "use the default bound".
+        if isempty(userVal) || isnan(userVal)
+            v = defaultVal;
+        else
+            v = userVal;
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onFit()
+        d = peaksTable.Data;
+        nPeaks = size(d, 1);
+        if nPeaks < 1
+            uialert(fig, 'Add at least one peak before fitting.', 'Nothing to fit');
+            return
+        end
+
+        shapes = d(:,1);
+        theta0 = [];
+        lb = [];
+        ub = [];
+        % Packing scheme: 3 params per peak (I, FWHM, x0), plus a 4th
+        % ("extra") for shapes that need one extra free parameter beyond
+        % those three -- Gaussian/Lorentzian don't, so they get no extra
+        % slot in theta. extraSlot remembers where each peak's extra
+        % parameter (if any) lives in theta so model/unpack agree.
+        extraSlot = zeros(nPeaks, 1);
+        for k = 1:nPeaks
+            % Columns: Shape,Center,C.Min,C.Max,FWHM,F.Min,F.Max,Height,H.Min,H.Max
+            fwhmGuess = d{k,5};
+            theta0 = [theta0, d{k,8}, fwhmGuess, d{k,2}]; %#ok<AGROW>
+            lb = [lb, resolveBound(d{k,9}, 0), resolveBound(d{k,6}, eps), resolveBound(d{k,3}, min(rawX))]; %#ok<AGROW>
+            ub = [ub, resolveBound(d{k,10}, Inf), resolveBound(d{k,7}, range(rawX)), resolveBound(d{k,4}, max(rawX))]; %#ok<AGROW>
+            % A user-typed bound can conflict with the current initial
+            % guess (LSQCURVEFIT errors if theta0 falls outside [lb,ub]);
+            % clamp the guess into range rather than surfacing that as a
+            % confusing optimizer error.
+            theta0(end-2:end) = min(max(theta0(end-2:end), lb(end-2:end)), ub(end-2:end));
+            switch shapes{k}
+                case 'Pseudo-Voigt'
+                    theta0(end+1) = 0.5; lb(end+1) = 0; ub(end+1) = 1; %#ok<AGROW>
+                case 'Fano'
+                    theta0(end+1) = 10; lb(end+1) = -1000; ub(end+1) = 1000; %#ok<AGROW>
+                case 'Pearson VII'
+                    theta0(end+1) = 1.5; lb(end+1) = 0.2; ub(end+1) = 50; %#ok<AGROW>
+                case 'True Voigt'
+                    % Extra parameter is FWHM_L; the 3rd packed parameter
+                    % above (fwhmGuess) is FWHM_G. Start FWHM_L at a
+                    % fraction of the peak's own initial FWHM guess.
+                    theta0(end+1) = max(fwhmGuess * 0.3, eps); %#ok<AGROW>
+                    lb(end+1) = eps; ub(end+1) = range(rawX); %#ok<AGROW>
+            end
+            if ~isequal(shapes{k}, 'Gaussian') && ~isequal(shapes{k}, 'Lorentzian')
+                extraSlot(k) = numel(theta0);
+            end
+        end
+
+        % Optional polynomial background, fitted JOINTLY with the peaks
+        % (as opposed to the Preprocess tab's baseline subtraction, which
+        % happens beforehand and is then fixed) -- useful when the
+        % background and peaks are hard to separate cleanly beforehand.
+        % Coefficients are appended after all peak parameters, in
+        % POLYVAL's convention (highest power first); degree -1 means
+        % "no background term" (no coefficients appended at all).
+        bgDegree = find(strcmp(backgroundDD.Value, {'None','Constant','Linear','Quadratic','Cubic'})) - 2;
+        nBgCoeffs = bgDegree + 1;
+        if nBgCoeffs > 0
+            theta0 = [theta0, zeros(1, nBgCoeffs)];
+            lb = [lb, -Inf(1, nBgCoeffs)];
+            ub = [ub, Inf(1, nBgCoeffs)];
+        end
+
+        mask = rangeMask();
+        opts = optimoptions('lsqcurvefit', 'Display', 'off');
+        try
+            [thetaFit, resnorm] = lsqcurvefit(@(th, x) totalModel(th, x, shapes, extraSlot, nPeaks, nBgCoeffs), ...
+                theta0, rawX(mask), workingY(mask), lb, ub, opts);
+        catch ME
+            uialert(fig, ME.message, 'Fit error');
+            return
+        end
+
+        bgCoeffsFit = thetaFit(end-nBgCoeffs+1:end);
+        peakThetaFit = thetaFit(1:end-nBgCoeffs);
+        [I, FWHM, x0, Extra] = unpackTheta(peakThetaFit, shapes, extraSlot, nPeaks);
+        N = nnz(mask);
+        nParams = numel(thetaFit);
+        dof = N - nParams;
+        sse = resnorm;  % unweighted chi-square: sum of squared residuals
+        rms = sqrt(sse / N);
+
+        clearTag('fitLine');
+        clearTag('peakComponentLine');
+        clearTag('backgroundFitLine');
+        resData = cell(nPeaks, 6);
+        newPeaksData = d;  % preserve each peak's Min/Max bound overrides; only the fitted columns below are overwritten
+        hold(ax, 'on');
+        if nBgCoeffs > 0
+            totalCurve = polyval(bgCoeffsFit, xi);
+            plot(ax, xi, totalCurve, ':', 'Color', [0.55 0.35 0.1], 'LineWidth', 1.2, ...
+                'PickableParts', 'none', 'Tag', 'backgroundFitLine');
+        else
+            totalCurve = zeros(size(xi));
+        end
+        for k = 1:nPeaks
+            comp = peakModel(xi, shapes{k}, I(k), FWHM(k), x0(k), Extra(k));
+            totalCurve = totalCurve + comp;
+            plot(ax, xi, comp, '--', 'Color', [0.4 0.4 0.4], 'LineWidth', 0.8, ...
+                'PickableParts', 'none', 'Tag', 'peakComponentLine');
+            % Numerical integration over the same dense XI grid used for
+            % the component curve above -- shape-agnostic (unlike AREAGL,
+            % which is an analytic formula specific to the Gauss-Lorentz
+            % blend and doesn't apply to Fano/Pearson VII/True Voigt).
+            area_ = trapz(xi, comp);
+            resData(k,:) = {k, shapes{k}, x0(k), FWHM(k), I(k), area_};
+            newPeaksData(k,[1 2 5 8]) = {shapes{k}, x0(k), FWHM(k), I(k)};
+        end
+        plot(ax, xi, totalCurve, 'r-', 'LineWidth', 1.5, 'PickableParts', 'none', 'Tag', 'fitLine');
+        hold(ax, 'off');
+
+        % Residuals + goodness-of-fit, evaluated AT the actual data points
+        % used by the fit (rawX(mask)), not the dense XI grid used above
+        % only for smooth component/total curves.
+        yFitAtData = totalModel(thetaFit, rawX(mask), shapes, extraSlot, nPeaks, nBgCoeffs);
+        resid = workingY(mask) - yFitAtData;
+        sst = sum((workingY(mask) - mean(workingY(mask))).^2);
+        r2 = 1 - sse / sst;
+        if dof > 0
+            redChi2 = sse / dof;
+            dofStr = sprintf('%d', dof);
+            redChi2Str = sprintf('%.4g', redChi2);
+        else
+            dofStr = sprintf('%d (underdetermined)', dof);
+            redChi2Str = 'n/a';
+        end
+
+        clearResiduals();
+        hold(residualsAx, 'on');
+        plot(residualsAx, rawX(mask), resid, 'o-', 'MarkerSize', 3, 'LineWidth', 0.75, ...
+            'Color', [0.2 0.4 0.75], 'Tag', 'residLine');
+        yline(residualsAx, 0, 'k-', 'Tag', 'residZero');
+        hold(residualsAx, 'off');
+
+        peaksTable.Data = newPeaksData;
+        resultsTable.Data = resData;
+        rmsLine = sprintf('RMS error = %.4g', rms);
+        if nBgCoeffs > 0
+            rmsLine = sprintf('%s   |   Background (%s): %s', rmsLine, backgroundDD.Value, mat2str(bgCoeffsFit, 4));
+        end
+        statsLabel.Text = { ...
+            sprintf('N = %d, parameters = %d, dof = %s', N, nParams, dofStr), ...
+            sprintf('Chi-square (SSE) = %.4g', sse), ...
+            sprintf('Reduced chi-square = %s', redChi2Str), ...
+            sprintf('R^2 = %.4f', r2), ...
+            rmsLine};
+        redrawPeakMarkers();
+        statusLabel.Text = sprintf('Fit complete: %d peak(s), RMS error %.4g.', nPeaks, rms);
+    end
+
+% -------------------------------------------------------------------------
+    function y = totalModel(theta, x, shapes, extraSlot, nPeaks, nBgCoeffs)
+        bgCoeffs = theta(end-nBgCoeffs+1:end);
+        peakTheta = theta(1:end-nBgCoeffs);
+        [I, FWHM, x0, Extra] = unpackTheta(peakTheta, shapes, extraSlot, nPeaks);
+        if nBgCoeffs > 0
+            y = polyval(bgCoeffs, x);
+        else
+            y = zeros(size(x));
+        end
+        for k = 1:nPeaks
+            y = y + peakModel(x, shapes{k}, I(k), FWHM(k), x0(k), Extra(k));
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function [I, FWHM, x0, Extra] = unpackTheta(theta, shapes, extraSlot, nPeaks)
+    % Extra(k) is meaningless (left 0) for Gaussian/Lorentzian peaks --
+    % PEAKMODEL hardcodes their lineshape parameter internally and never
+    % reads it for those two shapes.
+        I = zeros(nPeaks,1); FWHM = zeros(nPeaks,1); x0 = zeros(nPeaks,1); Extra = zeros(nPeaks,1);
+        base = 0;
+        for k = 1:nPeaks
+            I(k)    = theta(base+1);
+            FWHM(k) = theta(base+2);
+            x0(k)   = theta(base+3);
+            base = base + 3;
+            if extraSlot(k) > 0
+                Extra(k) = theta(extraSlot(k));
+                base = base + 1;
+            end
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onExportResults()
+        if isempty(resultsTable.Data)
+            uialert(fig, 'No fit results to export yet.', 'Nothing to export');
+            return
+        end
+        [f, p] = pickSaveFile({'*.csv','CSV file'}, 'Export fit results', 'raman_fit_results.csv');
+        if isequal(f, 0)
+            return
+        end
+        varNames = {'Peak','Shape','Center','FWHM','Height','Area'};
+        T = cell2table(resultsTable.Data, 'VariableNames', varNames);
+        try
+            writetable(T, fullfile(p, f));
+            statusLabel.Text = sprintf('Results exported to %s.', f);
+        catch ME
+            uialert(fig, ME.message, 'Export error');
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onSaveFigure()
+        [f, p] = pickSaveFile({'*.pdf','PDF'; '*.png','PNG'}, 'Save fit figure', 'raman_fit.pdf');
+        if isequal(f, 0)
+            return
+        end
+        try
+            exportgraphics(ax, fullfile(p, f));
+            statusLabel.Text = sprintf('Figure saved to %s.', f);
+        catch ME
+            uialert(fig, ME.message, 'Save error');
+        end
+    end
+
+end
