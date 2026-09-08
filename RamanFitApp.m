@@ -47,6 +47,24 @@ currentSmoothed = [];
 pickArmed = false;
 xi = [];  % dense grid for smooth fit-curve/component plotting
 
+% Snapshots of WORKINGY taken right after each preprocessing step commits
+% (baseline subtraction / smoothing), kept purely so "Save data (.mat)"
+% can export each pipeline stage separately -- WORKINGY itself is a
+% single evolving array with no history once a later step overwrites it.
+% Empty = that step was never applied this session.
+backsubY = [];
+smoothedY = [];
+
+% Full parameters of the most recently completed fit (peaksTable/
+% resultsTable only show a display-friendly subset -- e.g. the
+% shape-specific "extra" parameter, needed to reconstruct each peak's
+% curve exactly, isn't shown anywhere in the UI), kept so "Save data
+% (.mat)" can export the fit without re-running it. Empty = no fit yet.
+lastFitPeaks = struct('Shape', {}, 'I', {}, 'FWHM', {}, 'x0', {}, 'ExtraName', {}, 'ExtraValue', {});
+lastFitBgDegree = -1;
+lastFitBgCoeffs = [];
+lastFitWorkingY = [];  % WORKINGY exactly as it was when this fit ran (may include normalization, not just baseline/smoothing)
+
 % Analysis range (wavenumber window), set by dragging on the plot or
 % typing into the Min/Max fields. Empty = no restriction (use the full
 % spectrum) -- the default at load and after "Clear range".
@@ -193,7 +211,14 @@ uibutton(tabPreprocess, 'push', 'Position', [5 254 sidebarW-30 28], ...
 uibutton(tabPreprocess, 'push', 'Position', [5 220 sidebarW-30 28], ...
     'Text', 'Apply smoothing', 'ButtonPushedFcn', @(s,e) onApplySmoothing());
 
-uibutton(tabPreprocess, 'push', 'Position', [5 174 sidebarW-30 30], ...
+uilabel(tabPreprocess, 'Position', [5 192 sidebarW-30 18], 'Text', 'Normalization', 'FontWeight', 'bold');
+uilabel(tabPreprocess, 'Position', [5 166 60 18], 'Text', 'Method:');
+normalizeDD = uidropdown(tabPreprocess, 'Position', [65 164 sidebarW-95 22], ...
+    'Items', {'None','Max = 1','Area = 1'}, 'Value', 'None');
+uibutton(tabPreprocess, 'push', 'Position', [5 130 sidebarW-30 28], ...
+    'Text', 'Apply normalization', 'ButtonPushedFcn', @(s,e) onApplyNormalization());
+
+uibutton(tabPreprocess, 'push', 'Position', [5 88 sidebarW-30 30], ...
     'Text', 'Reset to raw', 'ButtonPushedFcn', @(s,e) onResetToRaw());
 
 % ---- Peaks tab -------------------------------------------------------------
@@ -229,6 +254,8 @@ uibutton(tabResults, 'push', 'Position', [5 194 sidebarW-30 28], ...
     'Text', 'Export results (CSV)...', 'ButtonPushedFcn', @(s,e) onExportResults());
 uibutton(tabResults, 'push', 'Position', [5 160 sidebarW-30 28], ...
     'Text', 'Save fit figure...', 'ButtonPushedFcn', @(s,e) onSaveFigure());
+uibutton(tabResults, 'push', 'Position', [5 126 sidebarW-30 28], ...
+    'Text', 'Save data (.mat)...', 'ButtonPushedFcn', @(s,e) onSaveMatFile());
 
 % -------------------------------------------------------------------------
 if ~isempty(filename)
@@ -326,6 +353,12 @@ end
         currentBaseline = [];
         currentBaselineMask = [];
         currentSmoothed = [];
+        backsubY = [];
+        smoothedY = [];
+        lastFitPeaks = struct('Shape', {}, 'I', {}, 'FWHM', {}, 'x0', {}, 'ExtraName', {}, 'ExtraValue', {});
+        lastFitBgDegree = -1;
+        lastFitBgCoeffs = [];
+        lastFitWorkingY = [];
         rangeXMin = [];
         rangeXMax = [];
         rangeMinField.Value = min(rawX);
@@ -425,6 +458,7 @@ end
         % the OLD workingY -- now stale, since workingY just changed.
         currentSmoothed = [];
         clearTag('smoothPreviewLine');
+        backsubY = workingY;  % snapshot for "Save data (.mat)" -- see session-state comment above
         redrawWorking();
         statusLabel.Text = 'Baseline subtracted.';
     end
@@ -472,8 +506,41 @@ end
         currentBaseline = [];
         currentBaselineMask = [];
         clearTag('baselineLine');
+        smoothedY = workingY;  % snapshot for "Save data (.mat)" -- see session-state comment above
         redrawWorking();
         statusLabel.Text = 'Smoothing applied.';
+    end
+
+% -------------------------------------------------------------------------
+    function onApplyNormalization()
+        if isempty(rawX) || strcmp(normalizeDD.Value, 'None')
+            return
+        end
+        % Normalizes against the CURRENT analysis range (RANGEMASK is
+        % all-true when no range is set, i.e. the whole spectrum) --
+        % "the region you want to fit", matching how baseline/fit already
+        % respect that same range.
+        mask = rangeMask();
+        switch normalizeDD.Value
+            case 'Max = 1'
+                factor = max(workingY(mask));
+            case 'Area = 1'
+                factor = trapz(rawX(mask), workingY(mask));
+        end
+        if ~isfinite(factor) || factor <= 0
+            uialert(fig, 'Cannot normalize: the selected region has a non-positive maximum/area.', 'Normalization error');
+            return
+        end
+        workingY = workingY / factor;
+        % A pending (uncommitted) baseline/smoothing preview was computed
+        % against the OLD workingY -- now stale, since workingY changed.
+        currentBaseline = [];
+        currentBaselineMask = [];
+        clearTag('baselineLine');
+        currentSmoothed = [];
+        clearTag('smoothPreviewLine');
+        redrawWorking();
+        statusLabel.Text = sprintf('Normalized by %s (factor = %.4g).', normalizeDD.Value, factor);
     end
 
 % -------------------------------------------------------------------------
@@ -484,6 +551,12 @@ end
         workingY = rawY;
         currentBaseline = [];
         currentSmoothed = [];
+        backsubY = [];
+        smoothedY = [];
+        lastFitPeaks = struct('Shape', {}, 'I', {}, 'FWHM', {}, 'x0', {}, 'ExtraName', {}, 'ExtraValue', {});
+        lastFitBgDegree = -1;
+        lastFitBgCoeffs = [];
+        lastFitWorkingY = [];
         clearTag('baselineLine');
         clearTag('smoothPreviewLine');
         clearTag('fitLine');
@@ -797,6 +870,14 @@ end
         theta0 = [];
         lb = [];
         ub = [];
+        % Default FWHM floor: a peak narrower than the data's own point
+        % spacing can't be resolved and just invites a degenerate fit --
+        % confirmed by testing: with a floor of EPS, Pearson VII (whose
+        % low-m tails can approximate a spike) slowly shrank FWHM toward
+        % zero and grew height to needle-fit a single noisy data point,
+        % improving resnorm a tiny bit further each repeated fit instead
+        % of settling. Floored at twice the median point spacing instead.
+        minFWHM = max(2 * median(diff(rawX)), eps);
         % Packing scheme: 3 params per peak (I, FWHM, x0), plus a 4th
         % ("extra") for shapes that need one extra free parameter beyond
         % those three -- Gaussian/Lorentzian don't, so they get no extra
@@ -807,7 +888,7 @@ end
             % Columns: Shape,Center,C.Min,C.Max,FWHM,F.Min,F.Max,Height,H.Min,H.Max
             fwhmGuess = d{k,5};
             theta0 = [theta0, d{k,8}, fwhmGuess, d{k,2}]; %#ok<AGROW>
-            lb = [lb, resolveBound(d{k,9}, 0), resolveBound(d{k,6}, eps), resolveBound(d{k,3}, min(rawX))]; %#ok<AGROW>
+            lb = [lb, resolveBound(d{k,9}, 0), resolveBound(d{k,6}, minFWHM), resolveBound(d{k,3}, min(rawX))]; %#ok<AGROW>
             ub = [ub, resolveBound(d{k,10}, Inf), resolveBound(d{k,7}, range(rawX)), resolveBound(d{k,4}, max(rawX))]; %#ok<AGROW>
             % A user-typed bound can conflict with the current initial
             % guess (LSQCURVEFIT errors if theta0 falls outside [lb,ub]);
@@ -849,7 +930,17 @@ end
         end
 
         mask = rangeMask();
-        opts = optimoptions('lsqcurvefit', 'Display', 'off');
+        % Default tolerances/iteration caps can declare "convergence"
+        % noticeably before the true minimum, especially for True Voigt
+        % (its numerical-integration-based model gives LSQCURVEFIT's
+        % finite-difference Jacobian a bit of noise) -- confirmed by
+        % testing: repeatedly re-fitting from the "converged" result kept
+        % creeping to a lower error instead of staying put. Raising the
+        % caps and tightening the tolerances reaches that same lower
+        % error in one Fit click instead of several.
+        opts = optimoptions('lsqcurvefit', 'Display', 'off', ...
+            'MaxIterations', 10000, 'MaxFunctionEvaluations', 100000, ...
+            'FunctionTolerance', 1e-10, 'StepTolerance', 1e-10, 'OptimalityTolerance', 1e-10);
         try
             [thetaFit, resnorm] = lsqcurvefit(@(th, x) totalModel(th, x, shapes, extraSlot, nPeaks, nBgCoeffs), ...
                 theta0, rawX(mask), workingY(mask), lb, ub, opts);
@@ -933,6 +1024,40 @@ end
             rmsLine};
         redrawPeakMarkers();
         statusLabel.Text = sprintf('Fit complete: %d peak(s), RMS error %.4g.', nPeaks, rms);
+
+        % Full parameters of this fit, kept for "Save data (.mat)" -- see
+        % session-state comment above for why (the UI tables alone don't
+        % carry enough to reconstruct each peak's curve exactly).
+        lastFitPeaks = struct('Shape', {}, 'I', {}, 'FWHM', {}, 'x0', {}, 'ExtraName', {}, 'ExtraValue', {});
+        for k = 1:nPeaks
+            lastFitPeaks(k).Shape = shapes{k};
+            lastFitPeaks(k).I = I(k);
+            lastFitPeaks(k).FWHM = FWHM(k);
+            lastFitPeaks(k).x0 = x0(k);
+            lastFitPeaks(k).ExtraName = extraParamName(shapes{k});
+            lastFitPeaks(k).ExtraValue = Extra(k);
+        end
+        lastFitBgDegree = nBgCoeffs - 1;
+        lastFitBgCoeffs = bgCoeffsFit;
+        lastFitWorkingY = workingY;
+    end
+
+% -------------------------------------------------------------------------
+    function name = extraParamName(shape)
+    % Name of the shape-specific extra parameter, matching PEAKMODEL's
+    % own dispatch -- empty for shapes that don't have one.
+        switch shape
+            case 'Pseudo-Voigt'
+                name = 'Lor';
+            case 'Fano'
+                name = 'q';
+            case 'Pearson VII'
+                name = 'm';
+            case 'True Voigt'
+                name = 'FWHM_L';
+            otherwise
+                name = '';
+        end
     end
 
 % -------------------------------------------------------------------------
@@ -998,6 +1123,65 @@ end
         try
             exportgraphics(ax, fullfile(p, f));
             statusLabel.Text = sprintf('Figure saved to %s.', f);
+        catch ME
+            uialert(fig, ME.message, 'Save error');
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onSaveMatFile()
+    % Exports every pipeline stage as its own (x,y) curve under DATA, plus
+    % one parameter struct per fitted peak (p1, p2, ...) -- fit info is
+    % only included if a fit has actually been run (LASTFITPEAKS is empty
+    % otherwise). Curves are evaluated on RAWX throughout, so every field
+    % lines up point-for-point for direct comparison/plotting outside the
+    % app.
+        if isempty(rawX)
+            uialert(fig, 'Load a spectrum first.', 'Nothing to save');
+            return
+        end
+        [f, p] = pickSaveFile({'*.mat','MAT-file'}, 'Save data', 'raman_fit_data.mat');
+        if isequal(f, 0)
+            return
+        end
+
+        S = struct();
+        S.data.raw = struct('x', rawX, 'y', rawY);
+        if ~isempty(backsubY)
+            S.data.backsub = struct('x', rawX, 'y', backsubY);
+        end
+        if ~isempty(smoothedY)
+            S.data.smoothed = struct('x', rawX, 'y', smoothedY);
+        end
+
+        nPeaksSaved = numel(lastFitPeaks);
+        if nPeaksSaved > 0
+            S.data.fitted = struct('x', rawX, 'y', lastFitWorkingY);
+            totalFit = zeros(size(rawX));
+            if lastFitBgDegree >= 0
+                bgCurve = polyval(lastFitBgCoeffs, rawX);
+                S.data.background = struct('x', rawX, 'y', bgCurve);
+                totalFit = totalFit + bgCurve;
+            end
+            for k = 1:nPeaksSaved
+                pk = lastFitPeaks(k);
+                curve = peakModel(rawX, pk.Shape, pk.I, pk.FWHM, pk.x0, pk.ExtraValue);
+                totalFit = totalFit + curve;
+                S.data.(sprintf('peak%d', k)) = struct('x', rawX, 'y', curve);
+
+                pStruct = struct('I', pk.I, 'w', pk.x0, 'FWHM', pk.FWHM, ...
+                    'Shape', pk.Shape, 'Area', trapz(rawX, curve));
+                if ~isempty(pk.ExtraName)
+                    pStruct.(pk.ExtraName) = pk.ExtraValue;
+                end
+                S.(sprintf('p%d', k)) = pStruct;
+            end
+            S.data.fit = struct('x', rawX, 'y', totalFit);
+        end
+
+        try
+            save(fullfile(p, f), '-struct', 'S');
+            statusLabel.Text = sprintf('Data saved to %s.', f);
         catch ME
             uialert(fig, ME.message, 'Save error');
         end
