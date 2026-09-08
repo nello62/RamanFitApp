@@ -34,6 +34,7 @@ filename = char(filename);
 thisDir = fileparts(mfilename('fullpath'));
 addpath(fullfile(thisDir, '..', 'mymatfunctions'));
 addpath(fullfile(thisDir, '..', 'backcor'));
+addpath(fullfile(thisDir, '..', 'myfileutil'));
 
 % -------------------------------------------------------------------------
 % Session state (nested-function closures share these -- same single-file,
@@ -327,7 +328,7 @@ end
 
 % -------------------------------------------------------------------------
     function onLoadSpectrum()
-        [f, p] = pickOpenFile({'*.txt;*.csv;*.dat','Text/CSV spectra (*.txt,*.csv,*.dat)'; '*.*','All files'}, ...
+        [f, p] = pickOpenFile({'*.txt;*.csv;*.dat;*.dpt','Text/CSV/DPT spectra (*.txt,*.csv,*.dat,*.dpt)'; '*.*','All files'}, ...
             'Select a Raman spectrum');
         if isequal(f, 0)
             return
@@ -341,7 +342,17 @@ end
 
 % -------------------------------------------------------------------------
     function loadFile(f)
-        data = readmatrix(f);
+        [~, ~, ext] = fileparts(f);
+        if strcmpi(ext, '.dpt')
+            % READDPT (myfileutil/) parses OPUS-style .dpt files: plain
+            % comma-separated wavenumber,intensity, one pair per line, no
+            % header -- a different format from the whitespace-delimited
+            % files READMATRIX handles below.
+            [x, y] = readdpt(f);
+            data = [x(:), y(:)];
+        else
+            data = readmatrix(f);
+        end
         if size(data, 2) < 2
             error('RamanFitApp:badFile', 'Expected at least two columns (wavenumber, intensity) in %s.', f);
         end
