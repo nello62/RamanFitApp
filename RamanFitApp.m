@@ -96,7 +96,14 @@ winX = scr(1) + 20;
 winY = max(scr(2) + 40, scr(2) + scr(4) - winH - 80);
 
 fig = uifigure('Name', 'RamanFitApp', 'Position', [winX winY winW winH]);
-fig.CloseRequestFcn = @(src, evt) delete(fig);
+% AX (below) gets a custom ButtonDownFcn for peak-picking/range-selection,
+% which conflicts with the axes toolbar's own zoom/pan mode management --
+% toggling zoom via the toolbar internally tries to manage ButtonDownFcn
+% too, which MATLAB warns about (confirmed harmless: the custom callback
+% value survives untouched across the mode transition). Suppressed only
+% for this app's lifetime; restored to whatever it was before on close.
+warnState = warning('off', 'MATLAB:modes:mode:InvalidPropertySet');
+fig.CloseRequestFcn = @(src, evt) closeApp();
 
 % -------------------------------------------------------------------------
 % Window layout: bottom status strip, left sidebar, central spectrum view.
@@ -267,6 +274,12 @@ end
 %  Nested callback/helper functions (share the outer function's workspace)
 % =========================================================================
 
+    function closeApp()
+        warning(warnState);
+        delete(fig);
+    end
+
+% -------------------------------------------------------------------------
     function [f, p] = pickOpenFile(filterSpec, dlgTitle)
     % Wraps UIGETFILE: on macOS, a uifigure's CEF-based window can end up
     % in front of the native file-picker dialog it just triggered, and
