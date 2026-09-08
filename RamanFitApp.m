@@ -61,7 +61,7 @@ smoothedY = [];
 % shape-specific "extra" parameter, needed to reconstruct each peak's
 % curve exactly, isn't shown anywhere in the UI), kept so "Save data
 % (.mat)" can export the fit without re-running it. Empty = no fit yet.
-lastFitPeaks = struct('Shape', {}, 'I', {}, 'FWHM', {}, 'x0', {}, 'ExtraName', {}, 'ExtraValue', {});
+lastFitPeaks = struct('Shape', {}, 'I', {}, 'I_err', {}, 'FWHM', {}, 'FWHM_err', {}, 'x0', {}, 'x0_err', {}, 'ExtraName', {}, 'ExtraValue', {});
 lastFitBgDegree = -1;
 lastFitBgCoeffs = [];
 lastFitWorkingY = [];  % WORKINGY exactly as it was when this fit ran (may include normalization, not just baseline/smoothing)
@@ -380,7 +380,7 @@ end
         currentSmoothed = [];
         backsubY = [];
         smoothedY = [];
-        lastFitPeaks = struct('Shape', {}, 'I', {}, 'FWHM', {}, 'x0', {}, 'ExtraName', {}, 'ExtraValue', {});
+        lastFitPeaks = struct('Shape', {}, 'I', {}, 'I_err', {}, 'FWHM', {}, 'FWHM_err', {}, 'x0', {}, 'x0_err', {}, 'ExtraName', {}, 'ExtraValue', {});
         lastFitBgDegree = -1;
         lastFitBgCoeffs = [];
         lastFitWorkingY = [];
@@ -578,7 +578,7 @@ end
         currentSmoothed = [];
         backsubY = [];
         smoothedY = [];
-        lastFitPeaks = struct('Shape', {}, 'I', {}, 'FWHM', {}, 'x0', {}, 'ExtraName', {}, 'ExtraValue', {});
+        lastFitPeaks = struct('Shape', {}, 'I', {}, 'I_err', {}, 'FWHM', {}, 'FWHM_err', {}, 'x0', {}, 'x0_err', {}, 'ExtraName', {}, 'ExtraValue', {});
         lastFitBgDegree = -1;
         lastFitBgCoeffs = [];
         lastFitWorkingY = [];
@@ -1089,12 +1089,16 @@ end
         % Full parameters of this fit, kept for "Save data (.mat)" -- see
         % session-state comment above for why (the UI tables alone don't
         % carry enough to reconstruct each peak's curve exactly).
-        lastFitPeaks = struct('Shape', {}, 'I', {}, 'FWHM', {}, 'x0', {}, 'ExtraName', {}, 'ExtraValue', {});
+        lastFitPeaks = struct('Shape', {}, 'I', {}, 'I_err', {}, 'FWHM', {}, 'FWHM_err', {}, ...
+            'x0', {}, 'x0_err', {}, 'ExtraName', {}, 'ExtraValue', {});
         for k = 1:nPeaks
             lastFitPeaks(k).Shape = shapes{k};
             lastFitPeaks(k).I = I(k);
+            lastFitPeaks(k).I_err = I_err(k);
             lastFitPeaks(k).FWHM = FWHM(k);
+            lastFitPeaks(k).FWHM_err = FWHM_err(k);
             lastFitPeaks(k).x0 = x0(k);
+            lastFitPeaks(k).x0_err = x0_err(k);
             lastFitPeaks(k).ExtraName = extraParamName(shapes{k});
             lastFitPeaks(k).ExtraValue = Extra(k);
         end
@@ -1233,8 +1237,8 @@ end
                 totalFit = totalFit + curve;
                 S.data.(sprintf('peak%d', k)) = struct('x', rawX, 'y', curve);
 
-                pStruct = struct('I', pk.I, 'w', pk.x0, 'FWHM', pk.FWHM, ...
-                    'Shape', pk.Shape, 'Area', trapz(rawX, curve));
+                pStruct = struct('I', pk.I, 'I_err', pk.I_err, 'w', pk.x0, 'w_err', pk.x0_err, ...
+                    'FWHM', pk.FWHM, 'FWHM_err', pk.FWHM_err, 'Shape', pk.Shape, 'Area', trapz(rawX, curve));
                 if ~isempty(pk.ExtraName)
                     pStruct.(pk.ExtraName) = pk.ExtraValue;
                 end
