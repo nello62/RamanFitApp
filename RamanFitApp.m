@@ -27,14 +27,10 @@ if nargin < 1
 end
 filename = char(filename);
 
-% GAUSSLOR/AREAGL/BACKCOR live in sibling folders under prog/, not on the
-% default path -- added relative to this file's own location so the app
-% still finds them regardless of the user's current MATLAB path or where
-% the repo is checked out.
-thisDir = fileparts(mfilename('fullpath'));
-addpath(fullfile(thisDir, '..', 'mymatfunctions'));
-addpath(fullfile(thisDir, '..', 'backcor'));
-addpath(fullfile(thisDir, '..', 'myfileutil'));
+% GAUSSLOR/AREAGL/BACKCOR/READDPT/AIRPLS are all copied into this same
+% folder (not left in their original sibling folders under prog/) so
+% RamanFit is self-contained -- MATLAB always resolves a function call
+% against its caller's own directory first, so no ADDPATH is needed.
 
 % -------------------------------------------------------------------------
 % Session state (nested-function closures share these -- same single-file,
