@@ -154,13 +154,15 @@ uibutton(sidebar, 'push', 'Position', [10 642 (sidebarW-30)/2 28], ...
     'Text', 'Zoom to range', 'ButtonPushedFcn', @(s,e) onZoomToRange());
 uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 642 (sidebarW-30)/2 28], ...
     'Text', 'Show full spectrum', 'ButtonPushedFcn', @(s,e) onShowFullSpectrum());
-uibutton(sidebar, 'push', 'Position', [10 608 sidebarW-20 28], ...
-    'Text', 'Reset Y axis', 'ButtonPushedFcn', @(s,e) onResetYAxis());
-
 tg = uitabgroup(sidebar, 'Position', [5 10 sidebarW-10 584]);
 tabPreprocess = uitab(tg, 'Title', 'Preprocess');
 tabPeaks      = uitab(tg, 'Title', 'Peaks');
 tabResults    = uitab(tg, 'Title', 'Results');
+
+% Created after the tabgroup so it renders on top of the tab-strip in
+% case its rendering encroaches above the tabgroup's declared Position.
+uibutton(sidebar, 'push', 'Position', [10 608 sidebarW-20 28], ...
+    'Text', 'Reset Y axis', 'ButtonPushedFcn', @(s,e) onResetYAxis());
 
 % ---- Preprocess tab ------------------------------------------------------
 uilabel(tabPreprocess, 'Position', [5 560 sidebarW-30 18], 'Text', 'Baseline', 'FontWeight', 'bold');
@@ -237,7 +239,7 @@ uibutton(tabPreprocess, 'push', 'Position', [5 88 sidebarW-30 30], ...
     'Text', 'Reset to raw', 'ButtonPushedFcn', @(s,e) onResetToRaw());
 
 % ---- Peaks tab -------------------------------------------------------------
-uilabel(tabPeaks, 'Position', [5 560 sidebarW-30 34], 'WordWrap', 'on', ...
+uilabel(tabPeaks, 'Position', [5 560 sidebarW-30 24], 'WordWrap', 'on', ...
     'Text', 'Click "Add peak", then click on the plot to place it. Min/Max columns are optional per-parameter fit bounds (blank = default bounds); Fix pins a parameter to its current value, overriding Min/Max.');
 addPeakBtn = uibutton(tabPeaks, 'push', 'Position', [5 528 sidebarW-30 28], ...
     'Text', 'Add peak', 'ButtonPushedFcn', @(s,e) onAddPeakBtn());
@@ -260,7 +262,7 @@ fitBtn = uibutton(tabPeaks, 'push', 'Position', [5 52 sidebarW-30 34], ...
     'Text', 'Fit', 'FontWeight', 'bold', 'ButtonPushedFcn', @(s,e) onFit());
 
 % ---- Results tab -----------------------------------------------------------
-resultsTable = uitable(tabResults, 'Position', [5 340 sidebarW-30 260], ...
+resultsTable = uitable(tabResults, 'Position', [5 340 sidebarW-30 244], ...
     'ColumnName', {'Peak','Shape','Center','+/-','FWHM','+/-','Height','+/-','Area'}, ...
     'ColumnWidth', {40, 95, 60, 55, 60, 55, 60, 55, 65}, ...
     'ColumnEditable', false(1,9), 'Data', cell(0,9));
@@ -401,7 +403,9 @@ end
         kids(kids == ax) = [];
         delete(kids);
         peaksTable.Data = cell(0,13);
+        scroll(peaksTable, 'top');
         resultsTable.Data = cell(0,9);
+        scroll(resultsTable, 'top');
         statsLabel.Text = 'Fit statistics: -';
         clearResiduals();
 
@@ -605,7 +609,9 @@ end
         clearTag('peakMarker');
         redrawWorking();
         peaksTable.Data = cell(0,13);
+        scroll(peaksTable, 'top');
         resultsTable.Data = cell(0,9);
+        scroll(resultsTable, 'top');
         statsLabel.Text = 'Fit statistics: -';
         clearResiduals();
         statusLabel.Text = 'Reset to raw spectrum; peaks and fit cleared.';
@@ -644,6 +650,7 @@ end
         d = peaksTable.Data;
         d(end+1, :) = {'Gaussian', xClick, false, [], [], fwhmGuess, false, [], [], heightGuess, false, [], []};
         peaksTable.Data = d;
+        scroll(peaksTable, 'top');
 
         pickArmed = false;
         addPeakBtn.Text = 'Add peak';
@@ -774,12 +781,14 @@ end
         d = peaksTable.Data;
         d(unique(rows(:,1)), :) = [];
         peaksTable.Data = d;
+        scroll(peaksTable, 'top');
         redrawPeakMarkers();
     end
 
 % -------------------------------------------------------------------------
     function onClearPeaks()
         peaksTable.Data = cell(0,13);
+        scroll(peaksTable, 'top');
         clearTag('peakMarker');
         clearTag('fitLine');
         clearTag('peakComponentLine');
@@ -1101,16 +1110,34 @@ end
         if any(isFreeParam)
             if dof > 0 && isequal(size(Jfull), [N, nParams])
                 Jfree = Jfull(:, isFreeParam);
-                colNorms = sqrt(sum(Jfree.^2, 1));
-                colNorms(colNorms < eps) = 1;  % an all-zero column would otherwise divide by zero
-                Jscaled = Jfree ./ colNorms;
-                JTJscaled = Jscaled' * Jscaled;
-                if rcond(JTJscaled) > 1e-12
-                    covarScaled = (sse / dof) * (JTJscaled \ eye(size(JTJscaled)));
-                    covarFree = covarScaled ./ (colNorms(:) * colNorms(:)');
-                    paramErrors(isFreeParam) = sqrt(max(diag(covarFree), 0))';
-                else
-                    paramErrors(isFreeParam) = NaN;
+                colNormsRaw = sqrt(sum(Jfree.^2, 1));
+                % A free parameter can still have an (almost) all-zero
+                % Jacobian column at the solution -- not from being Fixed,
+                % but because the model is locally insensitive to it there.
+                % Confirmed case: True Voigt's FWHM_L/FWHM_G, when one width
+                % fits much smaller than the other, trueVoigtLineshape
+                % returns a shape that depends only on the DOMINANT width
+                % (an explicit limit, see trueVoigtLineshape) -- so the
+                % other width's column is exactly zero. Including it in J'J
+                % makes the WHOLE matrix singular, wiping out every OTHER
+                % parameter's error too (same failure mode as an unguarded
+                % Fixed parameter), so it's excluded from the inversion here
+                % and reported as NaN for itself only.
+                isEstimable = colNormsRaw > 1e-10 * max(colNormsRaw);
+                freeIdx = find(isFreeParam);
+                paramErrors(freeIdx(~isEstimable)) = NaN;
+                if any(isEstimable)
+                    Jest = Jfree(:, isEstimable);
+                    colNorms = colNormsRaw(isEstimable);
+                    Jscaled = Jest ./ colNorms;
+                    JTJscaled = Jscaled' * Jscaled;
+                    if rcond(JTJscaled) > 1e-12
+                        covarScaled = (sse / dof) * (JTJscaled \ eye(size(JTJscaled)));
+                        covarEst = covarScaled ./ (colNorms(:) * colNorms(:)');
+                        paramErrors(freeIdx(isEstimable)) = sqrt(max(diag(covarEst), 0))';
+                    else
+                        paramErrors(freeIdx(isEstimable)) = NaN;
+                    end
                 end
             else
                 paramErrors(isFreeParam) = NaN;
@@ -1172,7 +1199,9 @@ end
         hold(residualsAx, 'off');
 
         peaksTable.Data = newPeaksData;
+        scroll(peaksTable, 'top');
         resultsTable.Data = resData;
+        scroll(resultsTable, 'top');
         rmsLine = sprintf('RMS error = %.4g', rms);
         if nBgCoeffs > 0
             rmsLine = sprintf('%s   |   Background (%s): %s', rmsLine, backgroundDD.Value, mat2str(bgCoeffsFit, 4));
