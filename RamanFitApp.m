@@ -154,8 +154,10 @@ uibutton(sidebar, 'push', 'Position', [10 642 (sidebarW-30)/2 28], ...
     'Text', 'Zoom to range', 'ButtonPushedFcn', @(s,e) onZoomToRange());
 uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 642 (sidebarW-30)/2 28], ...
     'Text', 'Show full spectrum', 'ButtonPushedFcn', @(s,e) onShowFullSpectrum());
+uibutton(sidebar, 'push', 'Position', [10 608 sidebarW-20 28], ...
+    'Text', 'Reset Y axis', 'ButtonPushedFcn', @(s,e) onResetYAxis());
 
-tg = uitabgroup(sidebar, 'Position', [5 10 sidebarW-10 618]);
+tg = uitabgroup(sidebar, 'Position', [5 10 sidebarW-10 584]);
 tabPreprocess = uitab(tg, 'Title', 'Preprocess');
 tabPeaks      = uitab(tg, 'Title', 'Peaks');
 tabResults    = uitab(tg, 'Title', 'Results');
@@ -801,6 +803,27 @@ end
             return
         end
         ax.XLim = [min(rawX), max(rawX)];
+    end
+
+% -------------------------------------------------------------------------
+    function onResetYAxis()
+    % After subtracting a baseline, autoscale still accounts for the
+    % (unsubtracted, greyed-out) raw reference line too, so the Y-axis
+    % often ends up spanning far more than the working spectrum actually
+    % needs, wasting vertical space. Fits the view to the working data
+    % alone, with a 20% headroom margin above the peak -- computed as
+    % 20% of the data's own range rather than a literal max*1.2, since
+    % that would invert (shrink instead of grow) for all-negative data.
+        if isempty(workingY)
+            return
+        end
+        yMin = min(workingY);
+        yMax = max(workingY);
+        margin = 0.2 * (yMax - yMin);
+        if margin <= 0
+            margin = max(abs(yMax), 1) * 0.2;  % flat data: fall back to a margin based on its own magnitude
+        end
+        ax.YLim = [yMin, yMax + margin];
     end
 
 % -------------------------------------------------------------------------
