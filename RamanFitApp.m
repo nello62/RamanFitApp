@@ -104,7 +104,7 @@ fig.CloseRequestFcn = @(src, evt) closeApp();
 % -------------------------------------------------------------------------
 % Window layout: bottom status strip, left sidebar, central spectrum view.
 % -------------------------------------------------------------------------
-sidebarW = 620;  % wide enough for the Peaks table's per-parameter Min/Max bound columns
+sidebarW = 660;  % wide enough for the Peaks table's per-parameter Fix/Min/Max columns
 
 statusLabel = uilabel(fig, 'Position', [10 8 winW-20 28], ...
     'Text', 'No spectrum loaded.', 'FontColor', [0.35 0.35 0.35]);
@@ -227,15 +227,15 @@ uibutton(tabPreprocess, 'push', 'Position', [5 88 sidebarW-30 30], ...
 
 % ---- Peaks tab -------------------------------------------------------------
 uilabel(tabPeaks, 'Position', [5 560 sidebarW-30 34], 'WordWrap', 'on', ...
-    'Text', 'Click "Add peak", then click on the plot to place it. Min/Max columns are optional per-parameter fit bounds -- leave blank to use the default bounds.');
+    'Text', 'Click "Add peak", then click on the plot to place it. Min/Max columns are optional per-parameter fit bounds (blank = default bounds); Fix pins a parameter to its current value, overriding Min/Max.');
 addPeakBtn = uibutton(tabPeaks, 'push', 'Position', [5 528 sidebarW-30 28], ...
     'Text', 'Add peak', 'ButtonPushedFcn', @(s,e) onAddPeakBtn());
 peaksTable = uitable(tabPeaks, 'Position', [5 200 sidebarW-30 320], ...
-    'ColumnName', {'Shape','Center','C.Min','C.Max','FWHM','F.Min','F.Max','Height','H.Min','H.Max'}, ...
+    'ColumnName', {'Shape','Center','Fix','C.Min','C.Max','FWHM','Fix','F.Min','F.Max','Height','Fix','H.Min','H.Max'}, ...
     'ColumnFormat', {{'Gaussian','Lorentzian','Pseudo-Voigt','Fano','Pearson VII','True Voigt'}, ...
-        'numeric','numeric','numeric','numeric','numeric','numeric','numeric','numeric','numeric'}, ...
-    'ColumnWidth', {95, 55, 50, 50, 55, 50, 50, 55, 50, 50}, ...
-    'ColumnEditable', true(1,10), 'Data', cell(0,10));
+        'numeric','logical','numeric','numeric','numeric','logical','numeric','numeric','numeric','logical','numeric','numeric'}, ...
+    'ColumnWidth', {90, 55, 30, 45, 45, 55, 30, 45, 45, 55, 30, 45, 45}, ...
+    'ColumnEditable', true(1,13), 'Data', cell(0,13));
 uibutton(tabPeaks, 'push', 'Position', [5 166 sidebarW-30 28], ...
     'Text', 'Remove selected peak', 'ButtonPushedFcn', @(s,e) onRemovePeak());
 uibutton(tabPeaks, 'push', 'Position', [5 132 sidebarW-30 28], ...
@@ -389,7 +389,7 @@ end
         kids = findall(ax);
         kids(kids == ax) = [];
         delete(kids);
-        peaksTable.Data = cell(0,10);
+        peaksTable.Data = cell(0,13);
         resultsTable.Data = cell(0,9);
         statsLabel.Text = 'Fit statistics: -';
         clearResiduals();
@@ -585,7 +585,7 @@ end
         clearTag('backgroundFitLine');
         clearTag('peakMarker');
         redrawWorking();
-        peaksTable.Data = cell(0,10);
+        peaksTable.Data = cell(0,13);
         resultsTable.Data = cell(0,9);
         statsLabel.Text = 'Fit statistics: -';
         clearResiduals();
@@ -623,7 +623,7 @@ end
         fwhmGuess = range(rawX) * 0.01;
 
         d = peaksTable.Data;
-        d(end+1, :) = {'Gaussian', xClick, [], [], fwhmGuess, [], [], heightGuess, [], []};
+        d(end+1, :) = {'Gaussian', xClick, false, [], [], fwhmGuess, false, [], [], heightGuess, false, [], []};
         peaksTable.Data = d;
 
         pickArmed = false;
@@ -739,7 +739,7 @@ end
             return
         end
         centers = cell2mat(d(:,2));
-        heights = cell2mat(d(:,8));
+        heights = cell2mat(d(:,10));
         hold(ax, 'on');
         plot(ax, centers, heights, 'kv', 'MarkerFaceColor', [0.2 0.2 0.2], ...
             'MarkerSize', 6, 'PickableParts', 'none', 'Tag', 'peakMarker');
@@ -760,7 +760,7 @@ end
 
 % -------------------------------------------------------------------------
     function onClearPeaks()
-        peaksTable.Data = cell(0,10);
+        peaksTable.Data = cell(0,13);
         clearTag('peakMarker');
         clearTag('fitLine');
         clearTag('peakComponentLine');
@@ -879,6 +879,11 @@ end
     end
 
 % -------------------------------------------------------------------------
+    function tf = isFixedCell(v)
+        tf = ~isempty(v) && logical(v);
+    end
+
+% -------------------------------------------------------------------------
     function onFit()
         d = peaksTable.Data;
         nPeaks = size(d, 1);
@@ -911,15 +916,39 @@ end
         % parameter (if any) lives in theta so model/unpack agree.
         extraSlot = zeros(nPeaks, 1);
         for k = 1:nPeaks
-            % Columns: Shape,Center,C.Min,C.Max,FWHM,F.Min,F.Max,Height,H.Min,H.Max
-            fwhmGuess = d{k,5};
-            theta0 = [theta0, d{k,8}, fwhmGuess, d{k,2}]; %#ok<AGROW>
-            lb = [lb, resolveBound(d{k,9}, 0), resolveBound(d{k,6}, minFWHM), resolveBound(d{k,3}, min(rawX))]; %#ok<AGROW>
-            ub = [ub, resolveBound(d{k,10}, Inf), resolveBound(d{k,7}, range(rawX)), resolveBound(d{k,4}, max(rawX))]; %#ok<AGROW>
+            % Columns: Shape,Center,Fix,C.Min,C.Max,FWHM,Fix,F.Min,F.Max,Height,Fix,H.Min,H.Max
+            fwhmGuess = d{k,6};
+            heightGuess = d{k,10};
+            centerGuess = d{k,2};
+            % A Fix checkbox pins that parameter to its own current guess
+            % by setting lb=ub=the guess directly, overriding Min/Max
+            % entirely for it -- computed BEFORE the clamp below, not as a
+            % later override, since clamping first would silently pull a
+            % Fixed value in against a conflicting Min/Max and then "fix"
+            % it at that wrong, already-clamped value instead.
+            if isFixedCell(d{k,11})
+                hLB = heightGuess; hUB = heightGuess;
+            else
+                hLB = resolveBound(d{k,12}, 0); hUB = resolveBound(d{k,13}, Inf);
+            end
+            if isFixedCell(d{k,7})
+                fLB = fwhmGuess; fUB = fwhmGuess;
+            else
+                fLB = resolveBound(d{k,8}, minFWHM); fUB = resolveBound(d{k,9}, range(rawX));
+            end
+            if isFixedCell(d{k,3})
+                cLB = centerGuess; cUB = centerGuess;
+            else
+                cLB = resolveBound(d{k,4}, min(rawX)); cUB = resolveBound(d{k,5}, max(rawX));
+            end
+            theta0 = [theta0, heightGuess, fwhmGuess, centerGuess]; %#ok<AGROW>
+            lb = [lb, hLB, fLB, cLB]; %#ok<AGROW>
+            ub = [ub, hUB, fUB, cUB]; %#ok<AGROW>
             % A user-typed bound can conflict with the current initial
             % guess (LSQCURVEFIT errors if theta0 falls outside [lb,ub]);
             % clamp the guess into range rather than surfacing that as a
-            % confusing optimizer error.
+            % confusing optimizer error -- a no-op for any Fixed parameter
+            % above, since its lb/ub already equal its own guess exactly.
             theta0(end-2:end) = min(max(theta0(end-2:end), lb(end-2:end)), ub(end-2:end));
             switch shapes{k}
                 case 'Pseudo-Voigt'
@@ -983,34 +1012,69 @@ end
         [I, FWHM, x0, Extra] = unpackTheta(peakThetaFit, shapes, extraSlot, nPeaks);
         N = nnz(mask);
         nParams = numel(thetaFit);
-        dof = N - nParams;
+        % A Fixed parameter (lb==ub, via a Fix checkbox) isn't actually
+        % being estimated, so it shouldn't consume a degree of freedom or
+        % enter the parameter covariance below -- both use only the FREE
+        % parameter count/subset.
+        isFreeParam = (lb ~= ub);
+        nFreeParams = nnz(isFreeParam);
+        dof = N - nFreeParams;
         sse = resnorm;  % unweighted chi-square: sum of squared residuals
         rms = sqrt(sse / N);
 
         % Parameter standard errors from the linearized (Gaussian)
         % approximation standard for nonlinear least squares: Cov(theta)
         % = sigma^2 * (J'J)^-1, sigma^2 = SSE/dof, evaluated at the
-        % solution's Jacobian. RCOND guards the case where J'J is too
-        % ill-conditioned to invert meaningfully (near-degenerate/
-        % strongly correlated parameters, e.g. Fano/Pearson VII pinned
-        % near a bound) -- reported as NaN rather than a misleading or
-        % warning-spamming number. LSQCURVEFIT can also return a 0x0
-        % JACOBIAN outright (confirmed by testing: happens when a
+        % solution's Jacobian, restricted to the FREE parameters -- a
+        % Fixed parameter has exactly zero uncertainty by construction (it
+        % was never varied), and including its column in J'J would make
+        % the WHOLE matrix singular, wiping out the error estimate for
+        % every OTHER (free) parameter too, not just the fixed one
+        % (confirmed by testing: fixing just one parameter turned every
+        % +/- column to NaN, not only the fixed parameter's own).
+        %
+        % J'J is additionally column-scaled (each column normalized to
+        % unit norm, covariance un-scaled back afterwards) before
+        % inverting -- confirmed necessary by testing: with several peaks
+        % of different shapes plus a fitted background, parameters as
+        % different in scale as a Fano q (~10) and a background constant
+        % (Jacobian column norm ~1e4) made J'J's raw condition number
+        % ~1e22 (RCOND below any reasonable threshold, so every error
+        % came back NaN even with nothing fixed), while the SAME matrix
+        % after per-column scaling had a perfectly invertible RCOND
+        % ~1e-7. This is the standard equilibration trick for this
+        % problem, not an approximation of a different quantity: scaling
+        % a column of J is exactly equivalent to a linear change of that
+        % one parameter's units, so undoing the scale on the resulting
+        % covariance recovers the exact same answer a well-conditioned
+        % J'J would have given directly.
+        %
+        % RCOND still guards the remaining case where even the scaled
+        % J'J is too ill-conditioned to invert meaningfully (genuinely
+        % near-degenerate/strongly correlated parameters, e.g. Fano/
+        % Pearson VII pinned near a bound). LSQCURVEFIT can also return a
+        % 0x0 JACOBIAN outright (confirmed by testing: happens when a
         % parameter's bounds are inconsistent, lb > ub -- it doesn't
-        % error in that case, it just reports back the starting point),
-        % which JTJ's own size wouldn't catch since it would then also be
-        % 0x0 and RCOND(0x0) doesn't reliably fail the check.
+        % error in that case, it just reports back the starting point).
         Jfull = full(jacobian);
-        if dof > 0 && isequal(size(Jfull), [N, nParams])
-            JTJ = Jfull' * Jfull;
-            if rcond(JTJ) > 1e-12
-                covar = (sse / dof) * (JTJ \ eye(size(JTJ)));
-                paramErrors = sqrt(max(diag(covar), 0))';
+        paramErrors = zeros(1, nParams);  % Fixed parameters: exactly 0 uncertainty
+        if any(isFreeParam)
+            if dof > 0 && isequal(size(Jfull), [N, nParams])
+                Jfree = Jfull(:, isFreeParam);
+                colNorms = sqrt(sum(Jfree.^2, 1));
+                colNorms(colNorms < eps) = 1;  % an all-zero column would otherwise divide by zero
+                Jscaled = Jfree ./ colNorms;
+                JTJscaled = Jscaled' * Jscaled;
+                if rcond(JTJscaled) > 1e-12
+                    covarScaled = (sse / dof) * (JTJscaled \ eye(size(JTJscaled)));
+                    covarFree = covarScaled ./ (colNorms(:) * colNorms(:)');
+                    paramErrors(isFreeParam) = sqrt(max(diag(covarFree), 0))';
+                else
+                    paramErrors(isFreeParam) = NaN;
+                end
             else
-                paramErrors = nan(1, nParams);
+                paramErrors(isFreeParam) = NaN;
             end
-        else
-            paramErrors = nan(1, nParams);
         end
         peakParamErrors = paramErrors(1:end-nBgCoeffs);
         [I_err, FWHM_err, x0_err, ~] = unpackTheta(peakParamErrors, shapes, extraSlot, nPeaks);
@@ -1039,7 +1103,7 @@ end
             % blend and doesn't apply to Fano/Pearson VII/True Voigt).
             area_ = trapz(xi, comp);
             resData(k,:) = {k, shapes{k}, x0(k), x0_err(k), FWHM(k), FWHM_err(k), I(k), I_err(k), area_};
-            newPeaksData(k,[1 2 5 8]) = {shapes{k}, x0(k), FWHM(k), I(k)};
+            newPeaksData(k,[1 2 6 10]) = {shapes{k}, x0(k), FWHM(k), I(k)};
         end
         plot(ax, xi, totalCurve, 'r-', 'LineWidth', 1.5, 'PickableParts', 'none', 'Tag', 'fitLine');
         hold(ax, 'off');
@@ -1074,7 +1138,7 @@ end
             rmsLine = sprintf('%s   |   Background (%s): %s', rmsLine, backgroundDD.Value, mat2str(bgCoeffsFit, 4));
         end
         statsLabel.Text = { ...
-            sprintf('N = %d, parameters = %d, dof = %s', N, nParams, dofStr), ...
+            sprintf('N = %d, parameters = %d (%d free), dof = %s', N, nParams, nFreeParams, dofStr), ...
             sprintf('Chi-square (SSE) = %.4g', sse), ...
             sprintf('Reduced chi-square = %s', redChi2Str), ...
             sprintf('R^2 = %.4f', r2), ...
