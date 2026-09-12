@@ -61,7 +61,7 @@ alla sola finestra selezionata (se non impostato, si usa l'intero spettro).
 
 ### Baseline (sottrazione del fondo)
 
-Due metodi selezionabili dal menu **Method**:
+Tre metodi selezionabili dal menu **Method**:
 
 - **backcor** — stima iterativa del fondo con un polinomio e pesi
   asimmetrici. Parametri: `Order` (grado del polinomio, default 5),
@@ -72,6 +72,15 @@ Due metodi selezionabili dal menu **Method**:
   più liscio), `Diff ord` (ordine delle differenze penalizzate, default 2),
   `Edge wt` (peso ai bordi, default 0.1), `p (asym)` (asimmetria, default
   0.05), `Max iter` (default 20).
+- **SNIP** (*Statistics-sensitive Non-linear Iterative Peak-clipping*) —
+  concettualmente diverso dagli altri due: non fa un fit polinomiale né usa
+  pesi iterativi, "rasa" ogni punto al valor medio dei suoi vicini a
+  distanza crescente, fino a lasciare solo variazioni lente. Parametri:
+  `Iterations (M)` (default 40 — quante iterazioni/distanza massima:
+  qualunque struttura più stretta di ~M punti viene trattata come picco,
+  non come fondo), `Use LLS transform` (default attivo — comprime la
+  dinamica del segnale prima del clipping, utile se ci sono picchi di
+  altezza molto diversa nello stesso spettro).
 
 Flusso di lavoro: **Preview baseline** disegna il fondo stimato come overlay
 senza modificare i dati; **Subtract baseline** lo sottrae effettivamente
@@ -208,6 +217,7 @@ prima di salvare.
 | `gausslor.m` | libreria personale (`mymatfunctions/`) | Lineshape Gauss-Lorentz, base per Gaussian/Lorentzian/Pseudo-Voigt |
 | `backcor.m` (+ `backcor_license.txt`) | V. Mazet | Metodo di sottrazione del fondo `backcor` |
 | `airPLS.m` | Zhang et al. (dominio pubblico) | Metodo di sottrazione del fondo `airPLS` |
+| `snip.m` | C.G. Ryan et al. 1988 (algoritmo pubblico, implementazione propria) | Metodo di sottrazione del fondo `SNIP` |
 | `readdpt.m` | libreria personale (`myfileutil/`) | Lettura file `.dpt` |
 
 ## Limiti noti

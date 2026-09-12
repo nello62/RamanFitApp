@@ -164,7 +164,7 @@ tabResults    = uitab(tg, 'Title', 'Results');
 uilabel(tabPreprocess, 'Position', [5 560 sidebarW-30 18], 'Text', 'Baseline', 'FontWeight', 'bold');
 uilabel(tabPreprocess, 'Position', [5 534 60 18], 'Text', 'Method:');
 baselineMethodDD = uidropdown(tabPreprocess, 'Position', [65 532 sidebarW-95 22], ...
-    'Items', {'backcor','airPLS'}, 'Value', 'backcor', ...
+    'Items', {'backcor','airPLS','SNIP'}, 'Value', 'backcor', ...
     'ValueChangedFcn', @(s,e) onBaselineMethodChanged());
 
 % backcor parameters (visible when Method = backcor)
@@ -197,6 +197,15 @@ airplsIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [80 448 100 
 airplsHandles = [lblLambda, airplsLambdaField, lblDiffOrder, airplsOrderField, ...
     lblEdgeWt, airplsWepField, lblAsym, airplsPField, lblMaxIter, airplsIterField];
 set(airplsHandles, 'Visible', 'off');
+
+% SNIP parameters (visible when Method = SNIP), same footprint again.
+lblSnipIter = uilabel(tabPreprocess, 'Position', [5 506 110 18], 'Text', 'Iterations (M):');
+snipIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 504 sidebarW-170 22], ...
+    'Value', 40, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
+snipLLSCheck = uicheckbox(tabPreprocess, 'Position', [5 478 sidebarW-30 22], ...
+    'Text', 'Use LLS transform', 'Value', true);
+snipHandles = [lblSnipIter, snipIterField, snipLLSCheck];
+set(snipHandles, 'Visible', 'off');
 
 uibutton(tabPreprocess, 'push', 'Position', [5 416 sidebarW-30 28], ...
     'Text', 'Preview baseline', 'ButtonPushedFcn', @(s,e) onPreviewBaseline());
@@ -420,12 +429,16 @@ end
 
 % -------------------------------------------------------------------------
     function onBaselineMethodChanged()
-        if strcmp(baselineMethodDD.Value, 'airPLS')
-            set(backcorHandles, 'Visible', 'off');
-            set(airplsHandles, 'Visible', 'on');
-        else
-            set(airplsHandles, 'Visible', 'off');
-            set(backcorHandles, 'Visible', 'on');
+        set(backcorHandles, 'Visible', 'off');
+        set(airplsHandles, 'Visible', 'off');
+        set(snipHandles, 'Visible', 'off');
+        switch baselineMethodDD.Value
+            case 'airPLS'
+                set(airplsHandles, 'Visible', 'on');
+            case 'SNIP'
+                set(snipHandles, 'Visible', 'on');
+            otherwise
+                set(backcorHandles, 'Visible', 'on');
         end
     end
 
@@ -436,16 +449,20 @@ end
         end
         mask = rangeMask();
         try
-            if strcmp(baselineMethodDD.Value, 'airPLS')
-                % airPLS takes a ROW vector (1 spectrum per row); our data
-                % is stored as columns throughout, so transpose in/out.
-                [~, z] = airPLS(workingY(mask)', airplsLambdaField.Value, ...
-                    airplsOrderField.Value, airplsWepField.Value, ...
-                    airplsPField.Value, airplsIterField.Value);
-                currentBaseline = z';
-            else
-                currentBaseline = backcor(rawX(mask), workingY(mask), baselineOrderField.Value, ...
-                    baselineThresholdField.Value, baselineFctDD.Value);
+            switch baselineMethodDD.Value
+                case 'airPLS'
+                    % airPLS takes a ROW vector (1 spectrum per row); our
+                    % data is stored as columns throughout, so transpose
+                    % in/out.
+                    [~, z] = airPLS(workingY(mask)', airplsLambdaField.Value, ...
+                        airplsOrderField.Value, airplsWepField.Value, ...
+                        airplsPField.Value, airplsIterField.Value);
+                    currentBaseline = z';
+                case 'SNIP'
+                    currentBaseline = snip(workingY(mask), snipIterField.Value, snipLLSCheck.Value);
+                otherwise
+                    currentBaseline = backcor(rawX(mask), workingY(mask), baselineOrderField.Value, ...
+                        baselineThresholdField.Value, baselineFctDD.Value);
             end
         catch ME
             uialert(fig, ME.message, sprintf('%s error', baselineMethodDD.Value));
