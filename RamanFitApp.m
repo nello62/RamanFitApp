@@ -75,8 +75,8 @@ dragStartX = [];
 % Find the active monitor, then build the window in one atomic call (same
 % "throwaway invisible figure" trick as G_gaussian_viewer.m).
 % -------------------------------------------------------------------------
-winW = 1150;
-winH = 890;
+winW = 1385;  % plot area widened 50% (sidebarW unchanged)
+winH = 1280;  % plot area heightened 50% (sidebar just gets extra headroom above it)
 tmpFig = figure('Visible', 'off');
 drawnow;
 tmpPos = tmpFig.Position;
@@ -114,12 +114,12 @@ sidebar = uipanel(fig, 'Position', [0 40 sidebarW winH-40], 'BorderType', 'line'
 % Main spectrum view on top, a shorter residuals strip below it, sharing
 % the x-axis (linked so zooming/panning one moves the other) -- residuals
 % are only populated after a Fit, empty otherwise.
-residualsAx = uiaxes(fig, 'Position', [sidebarW+10 45 winW-sidebarW-20 150]);
+residualsAx = uiaxes(fig, 'Position', [sidebarW+10 45 winW-sidebarW-20 225]);
 xlabel(residualsAx, 'Raman shift (cm^{-1})');
 ylabel(residualsAx, 'Residual');
 grid(residualsAx, 'on');
 
-ax = uiaxes(fig, 'Position', [sidebarW+10 210 winW-sidebarW-20 winH-260]);
+ax = uiaxes(fig, 'Position', [sidebarW+10 285 winW-sidebarW-20 winH-335]);
 ax.Toolbar.Visible = 'on';
 xlabel(ax, 'Raman shift (cm^{-1})');
 ylabel(ax, 'Intensity (a.u.)');
@@ -404,6 +404,7 @@ end
         delete(kids);
         peaksTable.Data = cell(0,13);
         scroll(peaksTable, 'top');
+        removeStyle(peaksTable);
         resultsTable.Data = cell(0,9);
         scroll(resultsTable, 'top');
         statsLabel.Text = 'Fit statistics: -';
@@ -610,6 +611,7 @@ end
         redrawWorking();
         peaksTable.Data = cell(0,13);
         scroll(peaksTable, 'top');
+        removeStyle(peaksTable);
         resultsTable.Data = cell(0,9);
         scroll(resultsTable, 'top');
         statsLabel.Text = 'Fit statistics: -';
@@ -760,15 +762,27 @@ end
 % -------------------------------------------------------------------------
     function redrawPeakMarkers()
         clearTag('peakMarker');
+        removeStyle(peaksTable);
         d = peaksTable.Data;
         if isempty(d)
             return
         end
         centers = cell2mat(d(:,2));
         heights = cell2mat(d(:,10));
+        n = size(d, 1);
+        peakColors = lines(n);  % same per-row color scheme as the fitted component curves
         hold(ax, 'on');
-        plot(ax, centers, heights, 'kv', 'MarkerFaceColor', [0.2 0.2 0.2], ...
-            'MarkerSize', 6, 'PickableParts', 'none', 'Tag', 'peakMarker');
+        for k = 1:n
+            plot(ax, centers(k), heights(k), 'v', 'Color', peakColors(k,:), ...
+                'MarkerFaceColor', peakColors(k,:), 'MarkerSize', 6, ...
+                'PickableParts', 'none', 'Tag', 'peakMarker');
+            % Colors only the Shape dropdown's displayed text (a style
+            % layer), never the underlying cell value -- onFit/peakModel
+            % match Shape by exact string ('Gaussian', 'Fano', ...), which
+            % coloring the actual Data with HTML would have broken.
+            addStyle(peaksTable, uistyle('FontColor', peakColors(k,:), 'FontWeight', 'bold'), ...
+                'cell', [k, 1]);
+        end
         hold(ax, 'off');
     end
 
@@ -1159,10 +1173,11 @@ end
         else
             totalCurve = zeros(size(xi));
         end
+        peakColors = lines(nPeaks);  % MATLAB's default axes ColorOrder, cycled if nPeaks > 7
         for k = 1:nPeaks
             comp = peakModel(xi, shapes{k}, I(k), FWHM(k), x0(k), Extra(k));
             totalCurve = totalCurve + comp;
-            plot(ax, xi, comp, '--', 'Color', [0.4 0.4 0.4], 'LineWidth', 0.8, ...
+            plot(ax, xi, comp, '--', 'Color', peakColors(k,:), 'LineWidth', 1, ...
                 'PickableParts', 'none', 'Tag', 'peakComponentLine');
             % Numerical integration over the same dense XI grid used for
             % the component curve above -- shape-agnostic (unlike AREAGL,
