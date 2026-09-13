@@ -77,8 +77,6 @@ stopRequested = false;  % set by the "Stop fit" button; polled by fitOutputFcn
 % Find the active monitor, then build the window in one atomic call (same
 % "throwaway invisible figure" trick as G_gaussian_viewer.m).
 % -------------------------------------------------------------------------
-winW = 1385;  % plot area widened 50% (sidebarW unchanged)
-winH = 1280;  % plot area heightened 50% (sidebar just gets extra headroom above it)
 tmpFig = figure('Visible', 'off');
 drawnow;
 tmpPos = tmpFig.Position;
@@ -89,6 +87,18 @@ monIdx = find(tmpPos(1) >= mp(:,1) & tmpPos(1) <= mp(:,1) + mp(:,3) & ...
               tmpPos(2) >= mp(:,2) & tmpPos(2) <= mp(:,2) + mp(:,4), 1);
 if isempty(monIdx), monIdx = 1; end
 scr = mp(monIdx, :);
+
+winW = min(1385, scr(3) - 60);  % plot area widened 50% (sidebarW unchanged), capped to fit the actual screen
+% Capped to the actual screen height minus room for the OS menu bar/dock
+% and this window's own title bar -- otherwise, on a screen shorter than
+% the requested 1280, the top of the window (where "Load spectrum..."
+% lives) renders above the visible screen area entirely and the window
+% can't be dragged into view without already knowing it's there.
+% Floored at 890 (the original, pre-enlargement design height): the
+% sidebar's own content needs at least that much regardless of screen
+% size, so a shorter screen means the window extends past the visible
+% area rather than the internal layout silently overflowing its panel.
+winH = max(890, min(1280, scr(4) - 120));  % plot area heightened 50% (sidebar just gets extra headroom above it)
 
 winX = scr(1) + 20;
 winY = max(scr(2) + 40, scr(2) + scr(4) - winH - 80);
@@ -134,36 +144,43 @@ linkaxes([ax, residualsAx], 'x');
 % consumed by the line's own hit-testing.
 ax.ButtonDownFcn = @(s,e) onAxesClicked(e);
 
-uibutton(sidebar, 'push', 'Position', [10 810 sidebarW-20 30], ...
+% Sidebar content block below is top-anchored: shifted up by the same
+% amount the window grew (winH-890) when the plot area was enlarged 50%,
+% so it sits flush near the panel's top instead of leaving a large empty
+% gap above "Load spectrum..." (any leftover space lands at the bottom of
+% the panel instead, which is the normal/expected place for it).
+topShift = max(0, winH - 890);  % floored: winH can now be capped below 890 on a short screen
+
+uibutton(sidebar, 'push', 'Position', [10 810+topShift sidebarW-20 30], ...
     'Text', 'Load spectrum...', 'FontWeight', 'bold', ...
     'ButtonPushedFcn', @(s,e) onLoadSpectrum());
-lblFile     = uilabel(sidebar, 'Position', [10 786 sidebarW-20 18], 'Text', 'File: -');
-lblNPoints  = uilabel(sidebar, 'Position', [10 768 sidebarW-20 18], 'Text', 'Points: -');
+lblFile     = uilabel(sidebar, 'Position', [10 786+topShift sidebarW-20 18], 'Text', 'File: -');
+lblNPoints  = uilabel(sidebar, 'Position', [10 768+topShift sidebarW-20 18], 'Text', 'Points: -');
 
 % ---- Analysis range (shared by baseline + fit) ---------------------------
-uilabel(sidebar, 'Position', [10 740 sidebarW-20 18], 'Text', 'Analysis range (cm^{-1}):', 'FontWeight', 'bold');
-uilabel(sidebar, 'Position', [10 712 34 18], 'Text', 'Min:');
-rangeMinField = uieditfield(sidebar, 'numeric', 'Position', [46 710 120 22], ...
+uilabel(sidebar, 'Position', [10 740+topShift sidebarW-20 18], 'Text', 'Analysis range (cm^{-1}):', 'FontWeight', 'bold');
+uilabel(sidebar, 'Position', [10 712+topShift 34 18], 'Text', 'Min:');
+rangeMinField = uieditfield(sidebar, 'numeric', 'Position', [46 710+topShift 120 22], ...
     'ValueChangedFcn', @(s,e) onRangeFieldChanged());
-uilabel(sidebar, 'Position', [176 712 34 18], 'Text', 'Max:');
-rangeMaxField = uieditfield(sidebar, 'numeric', 'Position', [212 710 120 22], ...
+uilabel(sidebar, 'Position', [176 712+topShift 34 18], 'Text', 'Max:');
+rangeMaxField = uieditfield(sidebar, 'numeric', 'Position', [212 710+topShift 120 22], ...
     'ValueChangedFcn', @(s,e) onRangeFieldChanged());
-selectRangeBtn = uibutton(sidebar, 'push', 'Position', [10 676 (sidebarW-30)/2 28], ...
+selectRangeBtn = uibutton(sidebar, 'push', 'Position', [10 676+topShift (sidebarW-30)/2 28], ...
     'Text', 'Select range (drag on plot)', 'ButtonPushedFcn', @(s,e) onSelectRangeBtn());
-uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 676 (sidebarW-30)/2 28], ...
+uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 676+topShift (sidebarW-30)/2 28], ...
     'Text', 'Clear range', 'ButtonPushedFcn', @(s,e) onClearRange());
-uibutton(sidebar, 'push', 'Position', [10 642 (sidebarW-30)/2 28], ...
+uibutton(sidebar, 'push', 'Position', [10 642+topShift (sidebarW-30)/2 28], ...
     'Text', 'Zoom to range', 'ButtonPushedFcn', @(s,e) onZoomToRange());
-uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 642 (sidebarW-30)/2 28], ...
+uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 642+topShift (sidebarW-30)/2 28], ...
     'Text', 'Show full spectrum', 'ButtonPushedFcn', @(s,e) onShowFullSpectrum());
-tg = uitabgroup(sidebar, 'Position', [5 10 sidebarW-10 584]);
+tg = uitabgroup(sidebar, 'Position', [5 10+topShift sidebarW-10 584]);
 tabPreprocess = uitab(tg, 'Title', 'Preprocess');
 tabPeaks      = uitab(tg, 'Title', 'Peaks');
 tabResults    = uitab(tg, 'Title', 'Results');
 
 % Created after the tabgroup so it renders on top of the tab-strip in
 % case its rendering encroaches above the tabgroup's declared Position.
-uibutton(sidebar, 'push', 'Position', [10 608 sidebarW-20 28], ...
+uibutton(sidebar, 'push', 'Position', [10 608+topShift sidebarW-20 28], ...
     'Text', 'Reset Y axis', 'ButtonPushedFcn', @(s,e) onResetYAxis());
 
 % ---- Preprocess tab ------------------------------------------------------
@@ -278,6 +295,8 @@ uibutton(tabResults, 'push', 'Position', [5 160 sidebarW-30 28], ...
     'Text', 'Save fit figure...', 'ButtonPushedFcn', @(s,e) onSaveFigure());
 uibutton(tabResults, 'push', 'Position', [5 126 sidebarW-30 28], ...
     'Text', 'Save data (.mat)...', 'ButtonPushedFcn', @(s,e) onSaveMatFile());
+
+set(findall(fig, 'Type', 'uibutton'), 'FontWeight', 'bold');
 
 % -------------------------------------------------------------------------
 if ~isempty(filename)
