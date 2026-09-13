@@ -794,10 +794,22 @@ end
         heights = cell2mat(d(:,10));
         n = size(d, 1);
         peakColors = lines(n);  % same per-row color scheme as the fitted component curves
+        % Label vertical offset scaled to the current Y view (not a fixed
+        % pixel/data amount), so it stays legibly above the marker
+        % regardless of the spectrum's own intensity scale.
+        yRange = diff(ax.YLim);
+        if ~isfinite(yRange) || yRange <= 0
+            yRange = max(max(abs(heights)), 1);
+        end
+        labelOffset = 0.03 * yRange;
         hold(ax, 'on');
         for k = 1:n
             plot(ax, centers(k), heights(k), 'v', 'Color', peakColors(k,:), ...
                 'MarkerFaceColor', peakColors(k,:), 'MarkerSize', 6, ...
+                'PickableParts', 'none', 'Tag', 'peakMarker');
+            text(ax, centers(k), heights(k) + labelOffset, sprintf('%.1f', centers(k)), ...
+                'Color', peakColors(k,:), 'FontSize', 12, 'FontWeight', 'bold', ...
+                'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
                 'PickableParts', 'none', 'Tag', 'peakMarker');
             % Colors only the Shape dropdown's displayed text (a style
             % layer), never the underlying cell value -- onFit/peakModel
