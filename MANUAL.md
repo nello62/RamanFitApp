@@ -39,11 +39,16 @@ crescente al caricamento.
 - **Grafico principale** (in alto a destra): spettro grezzo (grigio), spettro
   "di lavoro" dopo le elaborazioni (blu), overlay del fondo (arancione
   tratteggiato), curva di fit totale (rossa), componenti dei singoli picchi
-  (grigio tratteggiato).
+  (tratteggiate, un colore diverso per ciascun picco — vedi
+  [Marker dei picchi sul grafico](#marker-dei-picchi-sul-grafico)).
 - **Grafico dei residui** (sotto, più piccolo): `dato - fit` dopo ogni fit,
   con asse X agganciato al grafico principale (zoom/pan sincronizzati).
 - **Barra laterale**: pulsante di caricamento, selettore del range di
-  analisi, e tre schede (Preprocess / Peaks / Results).
+  analisi, pulsante **Reset Y axis** (riscala l'asse Y ai soli dati nel
+  range di analisi selezionato — o all'intero spettro se non ne è stato
+  impostato uno — eliminando lo spazio vuoto lasciato ad es. da un residuo
+  di fondo non ancora sottratto), e tre schede evidenziate (Preprocess /
+  Peaks / Results).
 
 ## Range di analisi
 
@@ -116,12 +121,33 @@ Premi **Add peak**, poi clicca sul grafico nel punto desiderato: viene
 creato un picco Gaussiano con centro nel punto cliccato, altezza pari al
 valore dei dati in quel punto, e una larghezza iniziale di stima.
 
+### Marker dei picchi sul grafico
+
+Ogni picco della tabella è mostrato sul grafico con due marker colorati
+(stesso colore della curva del picco, ciclando sulla palette di default di
+MATLAB), entrambi trascinabili col mouse per correggere a occhio la stima
+iniziale prima del fit:
+
+- **Marker di posizione** (triangolo, con etichetta numerica del valore di
+  Center sopra): trascinandolo si aggiornano sia **Center** (orizzontale)
+  sia **Height** (verticale) nella tabella.
+- **Marker FWHM** (cerchio, con etichetta sotto), posizionato al punto di
+  metà altezza del picco (Center + FWHM/2, Height/2): trascinandolo
+  **solo orizzontalmente** si aggiorna FWHM = 2 × (distanza dal centro).
+
+Al rilascio del mouse, la curva tratteggiata di quel picco si ridisegna
+subito con i nuovi valori (per le forme con un parametro extra — Fano,
+Pearson VII, True Voigt — riusa l'ultimo valore fittato se ancora
+compatibile, altrimenti una stima di default ragionevole), così l'effetto
+della modifica è visibile immediatamente senza dover rilanciare il Fit.
+
 ### Tabella dei picchi
 
 | Colonna | Significato |
 |---|---|
 | Shape | Forma del picco (menu a tendina per riga, vedi sotto) |
-| Center, FWHM, Height | Parametri base, editabili direttamente |
+| Center, FWHM, Height | Parametri base, editabili direttamente (o trascinando i marker sul grafico, vedi sopra) |
+| Fix (accanto a Center/FWHM/Height) | Se spuntato, blocca quel parametro al suo valore corrente durante il fit (vince su eventuali Min/Max) |
 | C.Min/C.Max, F.Min/F.Max, H.Min/H.Max | Limiti opzionali per il fit — lasciare vuoto per usare i limiti di default |
 
 I limiti di default sono: Height ≥ 0, FWHM tra il doppio della spaziatura
@@ -155,8 +181,15 @@ punteggiata sul grafico.
 ### Fit
 
 Il pulsante **Fit** si disabilita e mostra "Fitting..." durante
-l'esecuzione (i fit sono comunque rapidi). Al termine mostra di nuovo "Fit",
-sia in caso di successo che di errore.
+l'esecuzione. Al termine mostra di nuovo "Fit", sia in caso di successo
+che di errore.
+
+Durante il fit la barra di stato in basso mostra in tempo reale
+l'iterazione corrente e il valore di chi-quadro (`chi^2 = SSE`), utile per
+valutare l'andamento della convergenza. Accanto a **Fit** compare anche
+**Stop fit**: interrompe l'ottimizzazione mantenendo il miglior risultato
+trovato fino a quel momento, senza generare un errore — equivalente a un
+fit che si è fermato naturalmente a quell'iterazione.
 
 Il motore è `lsqcurvefit` (somma dei quadrati degli scarti, non pesata),
 con tolleranze strette e limiti di iterazione generosi per assicurare la
@@ -172,9 +205,14 @@ qualunque forma).
 
 Gli **errori** (colonne "+/-") sono stime standard per i minimi quadrati
 non lineari: `Cov(θ) = σ²·(JᵀJ)⁻¹` con `σ² = SSE/dof`, dalla Jacobiana di
-`lsqcurvefit` nel punto di minimo. Se la matrice è troppo mal condizionata
-(parametri fortemente correlati o al limite di un vincolo), l'errore è
-riportato come `NaN` invece di un numero fuorviante.
+`lsqcurvefit` nel punto di minimo. Un parametro con **Fix** attivo ha
+errore esattamente `0` (non viene stimato, non consuma un grado di
+libertà). Se la matrice è troppo mal condizionata (parametri fortemente
+correlati, al limite di un vincolo, o — per un solo parametro — localmente
+insensibile al modello in quel punto, es. un True Voigt il cui fit è
+scivolato quasi interamente su una delle due larghezze) l'errore è
+riportato come `NaN` per il/i solo/i parametro/i coinvolto/i, invece di un
+numero fuorviante, senza compromettere gli errori degli altri parametri.
 
 ### Pannello statistiche
 
