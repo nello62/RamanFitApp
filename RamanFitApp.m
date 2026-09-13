@@ -70,6 +70,8 @@ rangeXMax = [];
 rangeArmed = false;
 isDragging = false;
 dragStartX = [];
+draggingPeakRow = [];  % peaksTable row index currently being dragged by its marker, or [] when idle
+draggingMode = '';  % 'pos' (Center+Height marker) or 'fwhm' (FWHM marker)
 
 stopRequested = false;  % set by the "Stop fit" button; polled by fitOutputFcn
 
@@ -177,6 +179,11 @@ tg = uitabgroup(sidebar, 'Position', [5 10+topShift sidebarW-10 584]);
 tabPreprocess = uitab(tg, 'Title', 'Preprocess');
 tabPeaks      = uitab(tg, 'Title', 'Peaks');
 tabResults    = uitab(tg, 'Title', 'Results');
+% UITAB exposes no FontSize/FontWeight for its own Title text, only these
+% two color properties -- used here to make the three tab labels stand
+% out more against the default plain tab strip.
+set([tabPreprocess, tabPeaks, tabResults], ...
+    'BackgroundColor', [0.85 0.92 1], 'ForegroundColor', [0 0.25 0.55]);
 
 % Created after the tabgroup so it renders on top of the tab-strip in
 % case its rendering encroaches above the tabgroup's declared Position.
@@ -792,6 +799,7 @@ end
         end
         centers = cell2mat(d(:,2));
         heights = cell2mat(d(:,10));
+        fwhms = cell2mat(d(:,6));
         n = size(d, 1);
         peakColors = lines(n);  % same per-row color scheme as the fitted component curves
         % Label vertical offset scaled to the current Y view (not a fixed
@@ -804,12 +812,35 @@ end
         labelOffset = 0.03 * yRange;
         hold(ax, 'on');
         for k = 1:n
+            % PickableParts 'all' + its own ButtonDownFcn (unlike every
+            % other overlay here) lets a click land ON the marker itself
+            % instead of passing through to AX's ButtonDownFcn (which
+            % handles Add-peak/Select-range) -- that's what makes the
+            % marker draggable. K is captured by value at each loop
+            % iteration, so it stays correct per-marker after the loop ends.
             plot(ax, centers(k), heights(k), 'v', 'Color', peakColors(k,:), ...
                 'MarkerFaceColor', peakColors(k,:), 'MarkerSize', 6, ...
-                'PickableParts', 'none', 'Tag', 'peakMarker');
+                'PickableParts', 'all', 'ButtonDownFcn', @(s,e) onPeakMarkerDown(k), ...
+                'Tag', 'peakMarker');
             text(ax, centers(k), heights(k) + labelOffset, sprintf('%.1f', centers(k)), ...
                 'Color', peakColors(k,:), 'FontSize', 12, 'FontWeight', 'bold', ...
                 'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
+                'PickableParts', 'none', 'Tag', 'peakMarker');
+            % FWHM marker: placed at the half-max point on the peak's right
+            % flank (center + FWHM/2, height/2) -- the standard graphical
+            % definition of FWHM -- and draggable the same way, but only
+            % along X (dragging it re-derives FWHM = 2*(x - center), Y is
+            % ignored). A circle marker distinguishes it from the position
+            % marker's triangle.
+            fwhmX = centers(k) + fwhms(k)/2;
+            fwhmY = heights(k)/2;
+            plot(ax, fwhmX, fwhmY, 'o', 'Color', peakColors(k,:), ...
+                'MarkerFaceColor', peakColors(k,:), 'MarkerSize', 6, ...
+                'PickableParts', 'all', 'ButtonDownFcn', @(s,e) onFwhmMarkerDown(k), ...
+                'Tag', 'peakMarker');
+            text(ax, fwhmX, fwhmY - labelOffset, sprintf('%.1f', fwhms(k)), ...
+                'Color', peakColors(k,:), 'FontSize', 12, 'FontWeight', 'bold', ...
+                'HorizontalAlignment', 'center', 'VerticalAlignment', 'top', ...
                 'PickableParts', 'none', 'Tag', 'peakMarker');
             % Colors only the Shape dropdown's displayed text (a style
             % layer), never the underlying cell value -- onFit/peakModel
@@ -819,6 +850,122 @@ end
                 'cell', [k, 1]);
         end
         hold(ax, 'off');
+    end
+
+% -------------------------------------------------------------------------
+    function onPeakMarkerDown(k)
+        draggingPeakRow = k;
+        draggingMode = 'pos';
+        fig.WindowButtonMotionFcn = @(s,e) onPeakDragMotion();
+        fig.WindowButtonUpFcn = @(s,e) onPeakDragUp();
+    end
+
+% -------------------------------------------------------------------------
+    function onFwhmMarkerDown(k)
+        draggingPeakRow = k;
+        draggingMode = 'fwhm';
+        fig.WindowButtonMotionFcn = @(s,e) onPeakDragMotion();
+        fig.WindowButtonUpFcn = @(s,e) onPeakDragUp();
+    end
+
+% -------------------------------------------------------------------------
+    function onPeakDragMotion()
+        if isempty(draggingPeakRow)
+            return
+        end
+        xNow = ax.CurrentPoint(1,1);
+        yNow = ax.CurrentPoint(1,2);
+        d = peaksTable.Data;
+        switch draggingMode
+            case 'pos'
+                d{draggingPeakRow, 2} = xNow;   % Center
+                d{draggingPeakRow, 10} = yNow;  % Height
+            case 'fwhm'
+                % FWHM marker only moves along X -- re-derive FWHM from its
+                % distance to the (unchanged) center, floored well above
+                % zero so dragging past the center can't collapse/invert it.
+                centerVal = d{draggingPeakRow, 2};
+                minFwhmDrag = max(range(rawX) * 0.001, eps);
+                d{draggingPeakRow, 6} = max(2 * (xNow - centerVal), minFwhmDrag);
+        end
+        peaksTable.Data = d;
+        redrawPeakMarkers();
+    end
+
+% -------------------------------------------------------------------------
+    function onPeakDragUp()
+        if isempty(draggingPeakRow)
+            return
+        end
+        row = draggingPeakRow;
+        mode = draggingMode;
+        draggingPeakRow = [];
+        draggingMode = '';
+        fig.WindowButtonMotionFcn = '';
+        fig.WindowButtonUpFcn = '';
+        redrawPeakComponentPreviews();
+        if strcmp(mode, 'fwhm')
+            statusLabel.Text = sprintf('Peak %d FWHM set to %.1f cm^{-1}.', row, peaksTable.Data{row, 6});
+        else
+            statusLabel.Text = sprintf('Peak %d moved to %.1f cm^{-1}, height %.4g.', ...
+                row, peaksTable.Data{row, 2}, peaksTable.Data{row, 10});
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function redrawPeakComponentPreviews()
+    % Draws each peak's own curve from the table's CURRENT guess values
+    % (not a re-run fit) so dragging its marker/FWHM shows the resulting
+    % shape immediately. Reuses TAG peakComponentLine -- the same overlay
+    % a real Fit draws -- so a drag after fitting replaces the stale
+    % fitted curves with fresh ones instead of overlaying both.
+        clearTag('peakComponentLine');
+        d = peaksTable.Data;
+        if isempty(d) || isempty(xi)
+            return
+        end
+        n = size(d, 1);
+        peakColors = lines(n);
+        % Shapes with an extra free parameter (Fano's q, Pearson VII's m,
+        % True Voigt's FWHM_L) don't store a guess for it in the table at
+        % all -- it only exists once a fit has actually run. Reuse the
+        % last fit's value when the peak count/shape still line up (a
+        % reasonable proxy for "this is probably still the same peak,
+        % just moved"), otherwise fall back to onFit's own initial guess
+        % for that shape so the preview is at least plausible.
+        canReuseFittedExtra = (numel(lastFitPeaks) == n);
+        hold(ax, 'on');
+        for k = 1:n
+            shape = d{k,1};
+            if canReuseFittedExtra && isequal(lastFitPeaks(k).Shape, shape)
+                extraVal = lastFitPeaks(k).ExtraValue;
+            else
+                extraVal = defaultExtraGuess(shape, d{k,6});
+            end
+            comp = peakModel(xi, shape, d{k,10}, d{k,6}, d{k,2}, extraVal);
+            plot(ax, xi, comp, '--', 'Color', peakColors(k,:), 'LineWidth', 1, ...
+                'PickableParts', 'none', 'Tag', 'peakComponentLine');
+        end
+        hold(ax, 'off');
+    end
+
+% -------------------------------------------------------------------------
+    function extra = defaultExtraGuess(shape, fwhmGuess)
+    % Mirrors the initial-guess defaults ONFIT itself uses when packing
+    % theta0 for each shape, so a never-fitted peak's preview curve looks
+    % the same as what the optimizer would actually start from.
+        switch shape
+            case 'Pseudo-Voigt'
+                extra = 0.5;
+            case 'Fano'
+                extra = 10;
+            case 'Pearson VII'
+                extra = 1.5;
+            case 'True Voigt'
+                extra = max(fwhmGuess * 0.3, eps);
+            otherwise
+                extra = 0;
+        end
     end
 
 % -------------------------------------------------------------------------
