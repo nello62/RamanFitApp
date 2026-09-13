@@ -281,6 +281,9 @@ prima di salvare.
 | `apls.m` | P.J. Cadusch et al. 2013 (algoritmo pubblico, implementazione propria) | Metodo di sottrazione del fondo `APLS` |
 | `readdpt.m` | libreria personale (`myfileutil/`) | Lettura file `.dpt` |
 
+Riferimenti bibliografici completi per i metodi di sottrazione del fondo
+in [`REFERENCES.txt`](REFERENCES.txt).
+
 ## Limiti noti
 
 - I fit sono minimi quadrati non pesati: ogni punto ha lo stesso peso, non

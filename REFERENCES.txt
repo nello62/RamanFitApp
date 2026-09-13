@@ -1,0 +1,94 @@
+RamanFitApp -- References for the baseline-correction methods
+================================================================
+
+Each baseline method in the "Preprocess" tab is a published algorithm.
+The .m file implementing it is noted for each.
+
+
+backcor  (backcor.m)
+--------------------
+Iterative asymmetric polynomial baseline estimation, minimizing a
+non-quadratic cost function (symmetric/asymmetric Huber or truncated
+quadratic).
+
+  V. Mazet, C. Carteret, D. Brie, J. Idier, B. Humbert,
+  "Background removal from spectra by designing and minimising a
+  non-quadratic cost function",
+  Chemometrics and Intelligent Laboratory Systems, 76(2), 121-133 (2005).
+
+  V. Mazet, D. Brie, J. Idier,
+  "Simultaneous spectrum estimation and baseline correction using
+  sparse representations",
+  Proceedings of EUSIPCO, pp. 305-308 (2004).
+
+  V. Mazet, PhD Thesis, Universite Henri Poincare Nancy 1 (2005).
+
+Implementation: V. Mazet (vincent.mazet@unistra.fr), public domain.
+
+
+airPLS  (airPLS.m)
+------------------
+Adaptive Iteratively Reweighted Penalized Least Squares baseline
+(a Whittaker smoother with asymmetric iterative reweighting).
+
+  Z.-M. Zhang, S. Chen, Y.-Z. Liang,
+  "Baseline correction using adaptive iteratively reweighted penalized
+  least squares",
+  Analyst, 135(5), 1138-1146 (2010).
+
+Builds on:
+
+  P. H. C. Eilers,
+  "A perfect smoother",
+  Analytical Chemistry, 75(14), 3631-3636 (2003).
+
+  P. H. C. Eilers,
+  "Baseline correction with asymmetric least squares smoothing"
+  (unpublished report, University of Amsterdam, 2005).
+
+  F. Gan, G. Ruan, J. Mo,
+  "Baseline correction by improved iterative polynomial fitting with
+  automatic threshold",
+  Chemometrics and Intelligent Laboratory Systems, 82(1-2), 59-65 (2006).
+
+Implementation: Zhimin Zhang, Central South University (2011), public
+domain (MATLAB File Exchange).
+
+
+SNIP  (snip.m)
+--------------
+Statistics-sensitive Non-linear Iterative Peak-clipping baseline
+(clips each point to the average of its neighbors at growing distance;
+optional log-log-sqrt transform for the "improved SNIP" variant).
+
+  C. G. Ryan, E. Clayton, W. L. Griffin, S. H. Sie, D. R. Cousens,
+  "SNIP, a statistics-sensitive background treatment for the
+  quantitative analysis of PIXE spectra in geoscience applications",
+  Nuclear Instruments and Methods in Physics Research B, 34, 396-402
+  (1988).
+
+Implementation: original, written for RamanFitApp from the published
+algorithm description.
+
+
+APLS  (apls.m)
+--------------
+Adaptive-weight Penalized Least Squares baseline: same
+penalized-least-squares (Whittaker) fit as airPLS, but with a simpler,
+statistically motivated weight -- the probability that each observed
+value could have arisen, by chance, from Poisson-distributed background
+noise alone, given the current baseline estimate.
+
+  P. J. Cadusch, M. M. Hlaing, S. A. Wade, S. L. McArthur, P. R. Stoddart,
+  "Improved methods for fluorescence background subtraction from Raman
+  spectra",
+  Journal of Raman Spectroscopy, 44(11), 1587-1595 (2013).
+  DOI: 10.1002/jrs.4371
+
+Implementation: original, written for RamanFitApp from the published
+algorithm description (Poisson survival function computed via MATLAB's
+built-in GAMMAINC, verified equivalent to the standard Poisson CDF, to
+avoid a Statistics and Machine Learning Toolbox dependency).
+
+Note: the original PDF of this paper is not included in this repository
+(Wiley copyright) -- see the DOI above.
