@@ -1,1 +1,9 @@
 .DS_Store
+
+# Personal experimental data / scratch files -- not meant for the public repo
+MISURE R6G/
+PAP_3/
+*.mat
+sub1_new_vetro_pre.txt
+Water_ANISO_T_280_300_320_340_360.txt
+Water_ISO_T_280_300_320_340_360.txt
