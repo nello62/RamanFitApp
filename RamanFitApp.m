@@ -71,6 +71,8 @@ rangeArmed = false;
 isDragging = false;
 dragStartX = [];
 
+stopRequested = false;  % set by the "Stop fit" button; polled by fitOutputFcn
+
 % -------------------------------------------------------------------------
 % Find the active monitor, then build the window in one atomic call (same
 % "throwaway invisible figure" trick as G_gaussian_viewer.m).
@@ -243,7 +245,7 @@ uilabel(tabPeaks, 'Position', [5 560 sidebarW-30 24], 'WordWrap', 'on', ...
     'Text', 'Click "Add peak", then click on the plot to place it. Min/Max columns are optional per-parameter fit bounds (blank = default bounds); Fix pins a parameter to its current value, overriding Min/Max.');
 addPeakBtn = uibutton(tabPeaks, 'push', 'Position', [5 528 sidebarW-30 28], ...
     'Text', 'Add peak', 'ButtonPushedFcn', @(s,e) onAddPeakBtn());
-peaksTable = uitable(tabPeaks, 'Position', [5 200 sidebarW-30 320], ...
+peaksTable = uitable(tabPeaks, 'Position', [5 200 sidebarW-30 280], ...
     'ColumnName', {'Shape','Center','Fix','C.Min','C.Max','FWHM','Fix','F.Min','F.Max','Height','Fix','H.Min','H.Max'}, ...
     'ColumnFormat', {{'Gaussian','Lorentzian','Pseudo-Voigt','Fano','Pearson VII','True Voigt'}, ...
         'numeric','logical','numeric','numeric','numeric','logical','numeric','numeric','numeric','logical','numeric','numeric'}, ...
@@ -258,8 +260,10 @@ uilabel(tabPeaks, 'Position', [5 94 100 18], 'Text', 'Background:');
 backgroundDD = uidropdown(tabPeaks, 'Position', [110 92 sidebarW-140 22], ...
     'Items', {'None','Constant','Linear','Quadratic','Cubic'}, 'Value', 'None');
 
-fitBtn = uibutton(tabPeaks, 'push', 'Position', [5 52 sidebarW-30 34], ...
+fitBtn = uibutton(tabPeaks, 'push', 'Position', [5 52 (sidebarW-40)/2 34], ...
     'Text', 'Fit', 'FontWeight', 'bold', 'ButtonPushedFcn', @(s,e) onFit());
+stopFitBtn = uibutton(tabPeaks, 'push', 'Position', [15+(sidebarW-40)/2 52 (sidebarW-40)/2 34], ...
+    'Text', 'Stop fit', 'Visible', 'off', 'ButtonPushedFcn', @(s,e) onStopFit());
 
 % ---- Results tab -----------------------------------------------------------
 resultsTable = uitable(tabResults, 'Position', [5 340 sidebarW-30 200], ...
@@ -968,6 +972,9 @@ end
 
         fitBtn.Enable = 'off';
         fitBtn.Text = 'Fitting...';
+        stopFitBtn.Visible = 'on';
+        stopFitBtn.Enable = 'on';
+        stopRequested = false;
         statusLabel.Text = 'Fitting...';
         drawnow;
 
@@ -1069,7 +1076,8 @@ end
         % error in one Fit click instead of several.
         opts = optimoptions('lsqcurvefit', 'Display', 'off', ...
             'MaxIterations', 10000, 'MaxFunctionEvaluations', 100000, ...
-            'FunctionTolerance', 1e-10, 'StepTolerance', 1e-10, 'OptimalityTolerance', 1e-10);
+            'FunctionTolerance', 1e-10, 'StepTolerance', 1e-10, 'OptimalityTolerance', 1e-10, ...
+            'OutputFcn', @fitOutputFcn);
         try
             [thetaFit, resnorm, ~, ~, ~, ~, jacobian] = lsqcurvefit( ...
                 @(th, x) totalModel(th, x, shapes, extraSlot, nPeaks, nBgCoeffs), ...
@@ -1077,6 +1085,7 @@ end
         catch ME
             fitBtn.Enable = 'on';
             fitBtn.Text = 'Fit';
+            stopFitBtn.Visible = 'off';
             uialert(fig, ME.message, 'Fit error');
             return
         end
@@ -1263,6 +1272,35 @@ end
 
         fitBtn.Enable = 'on';
         fitBtn.Text = 'Fit';
+        stopFitBtn.Visible = 'off';
+    end
+
+% -------------------------------------------------------------------------
+    function onStopFit()
+        stopRequested = true;
+        stopFitBtn.Enable = 'off';  % avoid piling up repeat clicks before the next iteration checks the flag
+        statusLabel.Text = 'Stopping fit...';
+    end
+
+% -------------------------------------------------------------------------
+    function stop = fitOutputFcn(~, optimValues, state)
+    % Live progress display + cooperative cancellation for LSQCURVEFIT.
+    % DRAWNOW inside the loop is what actually lets the "Stop fit" button's
+    % click be processed at all -- MATLAB is single-threaded, so without it
+    % the whole UI (including that button) would stay frozen for the
+    % entire optimization and the click would only register once it's
+    % already done. Returning STOP=true here ends the fit cleanly with
+    % whatever the best iterate so far is (no exception raised), which is
+    % exactly what the existing try/catch and post-fit code already expect.
+        stop = false;
+        if strcmp(state, 'iter')
+            statusLabel.Text = sprintf('Fitting... iteration %d, chi^2 = %.6g', ...
+                optimValues.iteration, optimValues.resnorm);
+            drawnow limitrate;
+            if stopRequested
+                stop = true;
+            end
+        end
     end
 
 % -------------------------------------------------------------------------
