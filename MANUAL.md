@@ -76,7 +76,7 @@ alla sola finestra selezionata (se non impostato, si usa l'intero spettro).
 
 ### Baseline (sottrazione del fondo)
 
-Tre metodi selezionabili dal menu **Method**:
+Quattro metodi selezionabili dal menu **Method**:
 
 - **backcor** — stima iterativa del fondo con un polinomio e pesi
   asimmetrici. Parametri: `Order` (grado del polinomio, default 5),
@@ -96,6 +96,18 @@ Tre metodi selezionabili dal menu **Method**:
   non come fondo), `Use LLS transform` (default attivo — comprime la
   dinamica del segnale prima del clipping, utile se ci sono picchi di
   altezza molto diversa nello stesso spettro).
+- **APLS** (*Adaptive-weight Penalized Least Squares*, Cadusch et al.
+  2013) — come `airPLS`, un fit a spline penalizzata (Whittaker), ma con
+  un peso adattivo più semplice e statisticamente motivato: a ogni
+  iterazione, il peso di ciascun punto è la probabilità che il valore
+  osservato provenga per caso dal solo fondo (rumore Poissoniano), dato il
+  fondo stimato al passo precedente — punti ben sopra il fondo (probabili
+  picchi Raman) pesano poco, punti a livello del fondo pesano ~1. Nel
+  paper originale risulta il metodo più accurato su fondi complessi
+  (fluorescenza strutturata). Parametri: `Gamma` (rigidità della curva,
+  default 1e5 — scala molto con i dati, va tipicamente regolato caso per
+  caso, come `Lambda` per `airPLS`), `Diff ord` (1 o 2, default 2 — la
+  variante raccomandata dagli autori), `Max iter` (default 10).
 
 Flusso di lavoro: **Preview baseline** disegna il fondo stimato come overlay
 senza modificare i dati; **Subtract baseline** lo sottrae effettivamente
@@ -266,6 +278,7 @@ prima di salvare.
 | `backcor.m` (+ `backcor_license.txt`) | V. Mazet | Metodo di sottrazione del fondo `backcor` |
 | `airPLS.m` | Zhang et al. (dominio pubblico) | Metodo di sottrazione del fondo `airPLS` |
 | `snip.m` | C.G. Ryan et al. 1988 (algoritmo pubblico, implementazione propria) | Metodo di sottrazione del fondo `SNIP` |
+| `apls.m` | P.J. Cadusch et al. 2013 (algoritmo pubblico, implementazione propria) | Metodo di sottrazione del fondo `APLS` |
 | `readdpt.m` | libreria personale (`myfileutil/`) | Lettura file `.dpt` |
 
 ## Limiti noti

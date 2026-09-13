@@ -214,7 +214,7 @@ uibutton(sidebar, 'push', 'Position', [10 578+topShift sidebarW-20 28], ...
 uilabel(tabPreprocess, 'Position', [5 530 sidebarW-30 18], 'Text', 'Baseline', 'FontWeight', 'bold');
 uilabel(tabPreprocess, 'Position', [5 504 60 18], 'Text', 'Method:');
 baselineMethodDD = uidropdown(tabPreprocess, 'Position', [65 502 sidebarW-95 22], ...
-    'Items', {'backcor','airPLS','SNIP'}, 'Value', 'backcor', ...
+    'Items', {'backcor','airPLS','SNIP','APLS'}, 'Value', 'backcor', ...
     'ValueChangedFcn', @(s,e) onBaselineMethodChanged());
 
 % backcor parameters (visible when Method = backcor)
@@ -256,6 +256,19 @@ snipLLSCheck = uicheckbox(tabPreprocess, 'Position', [5 448 sidebarW-30 22], ...
     'Text', 'Use LLS transform', 'Value', true);
 snipHandles = [lblSnipIter, snipIterField, snipLLSCheck];
 set(snipHandles, 'Visible', 'off');
+
+% APLS parameters (visible when Method = APLS), same footprint again.
+lblAplsGamma = uilabel(tabPreprocess, 'Position', [5 476 60 18], 'Text', 'Gamma:');
+aplsGammaField = uieditfield(tabPreprocess, 'numeric', 'Position', [70 474 sidebarW-100 22], ...
+    'Value', 1e5, 'Limits', [0 Inf]);
+lblAplsOrder = uilabel(tabPreprocess, 'Position', [5 448 70 18], 'Text', 'Diff ord:');
+aplsOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [80 446 100 22], ...
+    'Value', 2, 'Limits', [1 2], 'RoundFractionalValues', 'on');
+lblAplsIter = uilabel(tabPreprocess, 'Position', [190 448 70 18], 'Text', 'Max iter:');
+aplsIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [260 446 sidebarW-30-255 22], ...
+    'Value', 10, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
+aplsHandles = [lblAplsGamma, aplsGammaField, lblAplsOrder, aplsOrderField, lblAplsIter, aplsIterField];
+set(aplsHandles, 'Visible', 'off');
 
 uibutton(tabPreprocess, 'push', 'Position', [5 386 sidebarW-30 28], ...
     'Text', 'Preview baseline', 'ButtonPushedFcn', @(s,e) onPreviewBaseline());
@@ -690,11 +703,14 @@ end
         set(backcorHandles, 'Visible', 'off');
         set(airplsHandles, 'Visible', 'off');
         set(snipHandles, 'Visible', 'off');
+        set(aplsHandles, 'Visible', 'off');
         switch baselineMethodDD.Value
             case 'airPLS'
                 set(airplsHandles, 'Visible', 'on');
             case 'SNIP'
                 set(snipHandles, 'Visible', 'on');
+            case 'APLS'
+                set(aplsHandles, 'Visible', 'on');
             otherwise
                 set(backcorHandles, 'Visible', 'on');
         end
@@ -718,6 +734,9 @@ end
                     currentBaseline = z';
                 case 'SNIP'
                     currentBaseline = snip(workingY(mask), snipIterField.Value, snipLLSCheck.Value);
+                case 'APLS'
+                    currentBaseline = apls(workingY(mask), aplsGammaField.Value, ...
+                        aplsOrderField.Value, aplsIterField.Value);
                 otherwise
                     currentBaseline = backcor(rawX(mask), workingY(mask), baselineOrderField.Value, ...
                         baselineThresholdField.Value, baselineFctDD.Value);
