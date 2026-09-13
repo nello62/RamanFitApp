@@ -34,6 +34,16 @@ In entrambi i casi la prima colonna è il numero d'onda (asse X), la seconda
 l'intensità (asse Y). I dati vengono automaticamente ordinati per X
 crescente al caricamento.
 
+## Più spettri contemporaneamente
+
+**Load spectrum...** aggiunge un nuovo spettro invece di sostituire quello
+corrente. Il menu a tendina **Spectra:** nella barra laterale elenca tutti
+gli spettri caricati nella sessione: selezionandone uno si passa a
+lavorarci, ripristinando esattamente lo stato in cui era stato lasciato —
+dati grezzi/di lavoro, range di analisi, picchi, tabella dei risultati,
+statistiche e, se era stato eseguito un fit, anche la curva totale (e
+l'eventuale fondo fittato) sul grafico.
+
 ## Struttura della finestra
 
 - **Grafico principale** (in alto a destra): spettro grezzo (grigio), spettro
