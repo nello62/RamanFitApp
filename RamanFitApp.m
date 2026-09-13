@@ -837,11 +837,22 @@ end
     % alone, with a 20% headroom margin above the peak -- computed as
     % 20% of the data's own range rather than a literal max*1.2, since
     % that would invert (shrink instead of grow) for all-negative data.
+    %
+    % Restricted to the current analysis range (rangeMask(), same range
+    % used by baseline/fit -- falls back to the full spectrum when no
+    % range is selected) rather than the whole spectrum's min/max, so
+    % zooming into a sub-region and resetting Y doesn't get dragged back
+    % out to a scale set by data outside the selected window.
         if isempty(workingY)
             return
         end
-        yMin = min(workingY);
-        yMax = max(workingY);
+        mask = rangeMask();
+        yInRange = workingY(mask);
+        if isempty(yInRange)
+            yInRange = workingY;
+        end
+        yMin = min(yInRange);
+        yMax = max(yInRange);
         margin = 0.2 * (yMax - yMin);
         if margin <= 0
             margin = max(abs(yMax), 1) * 0.2;  % flat data: fall back to a margin based on its own magnitude
