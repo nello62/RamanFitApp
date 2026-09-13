@@ -566,6 +566,7 @@ end
         redrawPeakMarkers();
         redrawPeakComponentPreviews();
         redrawTotalFitOverlay();
+        redrawResidualsOverlay();
         hold(ax, 'off');
         ax.XLim = snap.XLim;
         ax.YLim = snap.YLim;
@@ -612,6 +613,45 @@ end
         end
         plot(ax, xi, totalCurve, 'r-', 'LineWidth', 1.5, 'PickableParts', 'none', 'Tag', 'fitLine');
         hold(ax, 'off');
+    end
+
+% -------------------------------------------------------------------------
+    function redrawResidualsOverlay()
+    % Restores the bottom residuals panel for a spectrum that was already
+    % fitted (same staleness guard as REDRAWTOTALFITOVERLAY: skipped if the
+    % peak count no longer matches, or if RAWX itself doesn't match what
+    % the fit ran against). LASTFITWORKINGY is the full, unmasked working
+    % spectrum at fit time (see its declaration) -- masked here with the
+    % CURRENT analysis range, same as ONFIT's own residual computation.
+        clearResiduals();
+        if isempty(lastFitPeaks) || numel(lastFitWorkingY) ~= numel(rawX)
+            return
+        end
+        d = peaksTable.Data;
+        n = size(d, 1);
+        if numel(lastFitPeaks) ~= n
+            return
+        end
+        mask = rangeMask();
+        yFitAtData = zeros(nnz(mask), 1);
+        if lastFitBgDegree >= 0
+            yFitAtData = yFitAtData + polyval(lastFitBgCoeffs, rawX(mask));
+        end
+        for k = 1:n
+            shape = d{k,1};
+            if isequal(lastFitPeaks(k).Shape, shape)
+                extraVal = lastFitPeaks(k).ExtraValue;
+            else
+                extraVal = defaultExtraGuess(shape, d{k,6});
+            end
+            yFitAtData = yFitAtData + peakModel(rawX(mask), shape, d{k,10}, d{k,6}, d{k,2}, extraVal);
+        end
+        resid = lastFitWorkingY(mask) - yFitAtData;
+        hold(residualsAx, 'on');
+        plot(residualsAx, rawX(mask), resid, 'o-', 'MarkerSize', 3, 'LineWidth', 0.75, ...
+            'Color', [0.2 0.4 0.75], 'Tag', 'residLine');
+        yline(residualsAx, 0, 'k-', 'Tag', 'residZero');
+        hold(residualsAx, 'off');
     end
 
 % -------------------------------------------------------------------------
