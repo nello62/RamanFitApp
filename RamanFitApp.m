@@ -72,6 +72,14 @@ isDragging = false;
 dragStartX = [];
 draggingPeakRow = [];  % peaksTable row index currently being dragged by its marker, or [] when idle
 draggingMode = '';  % 'pos' (Center+Height marker) or 'fwhm' (FWHM marker)
+showPeakLabels = true;  % toggled by the "Show position/FWHM values" checkbox
+
+% Loaded-spectra list: each entry is a full snapshot of the state below
+% (see captureSpectrumSnapshot/restoreSpectrumSnapshot) so "Load
+% spectrum..." can add spectra instead of replacing the current one, and
+% the "Spectra:" dropdown can switch which one is being worked on.
+loadedSpectra = struct('FileName', {}, 'Snapshot', {});
+activeSpectrumIdx = 0;  % index into loadedSpectra currently shown/edited live
 
 stopRequested = false;  % set by the "Stop fit" button; polled by fitOutputFcn
 
@@ -96,11 +104,14 @@ winW = min(1385, scr(3) - 60);  % plot area widened 50% (sidebarW unchanged), ca
 % the requested 1280, the top of the window (where "Load spectrum..."
 % lives) renders above the visible screen area entirely and the window
 % can't be dragged into view without already knowing it's there.
-% Floored at 890 (the original, pre-enlargement design height): the
-% sidebar's own content needs at least that much regardless of screen
-% size, so a shorter screen means the window extends past the visible
-% area rather than the internal layout silently overflowing its panel.
-winH = max(890, min(1280, scr(4) - 120));  % plot area heightened 50% (sidebar just gets extra headroom above it)
+% Floored at sidebarMinH (the original 890 pre-enlargement design height,
+% plus room for the "Spectra:" selector row added later): the sidebar's
+% own content needs at least that much regardless of screen size, so a
+% shorter screen means the window extends past the visible area rather
+% than the internal layout silently overflowing its panel.
+sidebarExtraRow = 30;  % vertical room reserved for the "Spectra:" selector row
+sidebarMinH = 890 + sidebarExtraRow;
+winH = max(sidebarMinH, min(1280, scr(4) - 120));  % plot area heightened 50% (sidebar just gets extra headroom above it)
 
 winX = scr(1) + 20;
 winY = max(scr(2) + 40, scr(2) + scr(4) - winH - 80);
@@ -151,7 +162,7 @@ ax.ButtonDownFcn = @(s,e) onAxesClicked(e);
 % so it sits flush near the panel's top instead of leaving a large empty
 % gap above "Load spectrum..." (any leftover space lands at the bottom of
 % the panel instead, which is the normal/expected place for it).
-topShift = max(0, winH - 890);  % floored: winH can now be capped below 890 on a short screen
+topShift = max(0, winH - sidebarMinH);  % floored: winH can now be capped below sidebarMinH on a short screen
 
 uibutton(sidebar, 'push', 'Position', [10 810+topShift sidebarW-20 30], ...
     'Text', 'Load spectrum...', 'FontWeight', 'bold', ...
@@ -159,23 +170,32 @@ uibutton(sidebar, 'push', 'Position', [10 810+topShift sidebarW-20 30], ...
 lblFile     = uilabel(sidebar, 'Position', [10 786+topShift sidebarW-20 18], 'Text', 'File: -');
 lblNPoints  = uilabel(sidebar, 'Position', [10 768+topShift sidebarW-20 18], 'Text', 'Points: -');
 
+% ---- Loaded spectra selector -----------------------------------------------
+% Lets more than one spectrum be loaded at once: "Load spectrum..." adds a
+% new entry instead of replacing the current one, and this dropdown
+% switches which one is active (raw/working data, peaks, results, and fit
+% stats are swapped in/out via captureSpectrumSnapshot/restoreSpectrumSnapshot).
+uilabel(sidebar, 'Position', [10 740+topShift 60 18], 'Text', 'Spectra:');
+spectrumDD = uidropdown(sidebar, 'Position', [75 738+topShift sidebarW-105 22], ...
+    'Items', {}, 'ValueChangedFcn', @(s,e) onSpectrumSelected());
+
 % ---- Analysis range (shared by baseline + fit) ---------------------------
-uilabel(sidebar, 'Position', [10 740+topShift sidebarW-20 18], 'Text', 'Analysis range (cm^{-1}):', 'FontWeight', 'bold');
-uilabel(sidebar, 'Position', [10 712+topShift 34 18], 'Text', 'Min:');
-rangeMinField = uieditfield(sidebar, 'numeric', 'Position', [46 710+topShift 120 22], ...
+uilabel(sidebar, 'Position', [10 710+topShift sidebarW-20 18], 'Text', 'Analysis range (cm^{-1}):', 'FontWeight', 'bold');
+uilabel(sidebar, 'Position', [10 682+topShift 34 18], 'Text', 'Min:');
+rangeMinField = uieditfield(sidebar, 'numeric', 'Position', [46 680+topShift 120 22], ...
     'ValueChangedFcn', @(s,e) onRangeFieldChanged());
-uilabel(sidebar, 'Position', [176 712+topShift 34 18], 'Text', 'Max:');
-rangeMaxField = uieditfield(sidebar, 'numeric', 'Position', [212 710+topShift 120 22], ...
+uilabel(sidebar, 'Position', [176 682+topShift 34 18], 'Text', 'Max:');
+rangeMaxField = uieditfield(sidebar, 'numeric', 'Position', [212 680+topShift 120 22], ...
     'ValueChangedFcn', @(s,e) onRangeFieldChanged());
-selectRangeBtn = uibutton(sidebar, 'push', 'Position', [10 676+topShift (sidebarW-30)/2 28], ...
+selectRangeBtn = uibutton(sidebar, 'push', 'Position', [10 646+topShift (sidebarW-30)/2 28], ...
     'Text', 'Select range (drag on plot)', 'ButtonPushedFcn', @(s,e) onSelectRangeBtn());
-uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 676+topShift (sidebarW-30)/2 28], ...
+uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 646+topShift (sidebarW-30)/2 28], ...
     'Text', 'Clear range', 'ButtonPushedFcn', @(s,e) onClearRange());
-uibutton(sidebar, 'push', 'Position', [10 642+topShift (sidebarW-30)/2 28], ...
+uibutton(sidebar, 'push', 'Position', [10 612+topShift (sidebarW-30)/2 28], ...
     'Text', 'Zoom to range', 'ButtonPushedFcn', @(s,e) onZoomToRange());
-uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 642+topShift (sidebarW-30)/2 28], ...
+uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 612+topShift (sidebarW-30)/2 28], ...
     'Text', 'Show full spectrum', 'ButtonPushedFcn', @(s,e) onShowFullSpectrum());
-tg = uitabgroup(sidebar, 'Position', [5 10+topShift sidebarW-10 584]);
+tg = uitabgroup(sidebar, 'Position', [5 10+topShift sidebarW-10 554]);
 tabPreprocess = uitab(tg, 'Title', 'Preprocess');
 tabPeaks      = uitab(tg, 'Title', 'Peaks');
 tabResults    = uitab(tg, 'Title', 'Results');
@@ -187,120 +207,123 @@ set([tabPreprocess, tabPeaks, tabResults], ...
 
 % Created after the tabgroup so it renders on top of the tab-strip in
 % case its rendering encroaches above the tabgroup's declared Position.
-uibutton(sidebar, 'push', 'Position', [10 608+topShift sidebarW-20 28], ...
+uibutton(sidebar, 'push', 'Position', [10 578+topShift sidebarW-20 28], ...
     'Text', 'Reset Y axis', 'ButtonPushedFcn', @(s,e) onResetYAxis());
 
 % ---- Preprocess tab ------------------------------------------------------
-uilabel(tabPreprocess, 'Position', [5 560 sidebarW-30 18], 'Text', 'Baseline', 'FontWeight', 'bold');
-uilabel(tabPreprocess, 'Position', [5 534 60 18], 'Text', 'Method:');
-baselineMethodDD = uidropdown(tabPreprocess, 'Position', [65 532 sidebarW-95 22], ...
+uilabel(tabPreprocess, 'Position', [5 530 sidebarW-30 18], 'Text', 'Baseline', 'FontWeight', 'bold');
+uilabel(tabPreprocess, 'Position', [5 504 60 18], 'Text', 'Method:');
+baselineMethodDD = uidropdown(tabPreprocess, 'Position', [65 502 sidebarW-95 22], ...
     'Items', {'backcor','airPLS','SNIP'}, 'Value', 'backcor', ...
     'ValueChangedFcn', @(s,e) onBaselineMethodChanged());
 
 % backcor parameters (visible when Method = backcor)
-lblOrder = uilabel(tabPreprocess, 'Position', [5 506 110 18], 'Text', 'Order:');
-baselineOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 504 sidebarW-170 22], ...
+lblOrder = uilabel(tabPreprocess, 'Position', [5 476 110 18], 'Text', 'Order:');
+baselineOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 474 sidebarW-170 22], ...
     'Value', 5, 'Limits', [0 Inf], 'RoundFractionalValues', 'on');
-lblThreshold = uilabel(tabPreprocess, 'Position', [5 478 110 18], 'Text', 'Threshold:');
-baselineThresholdField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 476 sidebarW-170 22], 'Value', 0.1);
-lblCostFn = uilabel(tabPreprocess, 'Position', [5 450 110 18], 'Text', 'Cost function:');
-baselineFctDD = uidropdown(tabPreprocess, 'Position', [140 448 sidebarW-170 22], ...
+lblThreshold = uilabel(tabPreprocess, 'Position', [5 448 110 18], 'Text', 'Threshold:');
+baselineThresholdField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 446 sidebarW-170 22], 'Value', 0.1);
+lblCostFn = uilabel(tabPreprocess, 'Position', [5 420 110 18], 'Text', 'Cost function:');
+baselineFctDD = uidropdown(tabPreprocess, 'Position', [140 418 sidebarW-170 22], ...
     'Items', {'sh','ah','stq','atq'}, 'Value', 'atq');
 backcorHandles = [lblOrder, baselineOrderField, lblThreshold, baselineThresholdField, lblCostFn, baselineFctDD];
 
 % airPLS parameters (visible when Method = airPLS), packed two-per-row
 % into the same vertical footprint as the backcor controls above.
-lblLambda = uilabel(tabPreprocess, 'Position', [5 506 55 18], 'Text', 'Lambda:');
-airplsLambdaField = uieditfield(tabPreprocess, 'numeric', 'Position', [62 504 110 22], 'Value', 1e7);
-lblDiffOrder = uilabel(tabPreprocess, 'Position', [180 506 60 18], 'Text', 'Diff ord:');
-airplsOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [237 504 sidebarW-30-232 22], ...
+lblLambda = uilabel(tabPreprocess, 'Position', [5 476 55 18], 'Text', 'Lambda:');
+airplsLambdaField = uieditfield(tabPreprocess, 'numeric', 'Position', [62 474 110 22], 'Value', 1e7);
+lblDiffOrder = uilabel(tabPreprocess, 'Position', [180 476 60 18], 'Text', 'Diff ord:');
+airplsOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [237 474 sidebarW-30-232 22], ...
     'Value', 2, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
-lblEdgeWt = uilabel(tabPreprocess, 'Position', [5 478 55 18], 'Text', 'Edge wt:');
-airplsWepField = uieditfield(tabPreprocess, 'numeric', 'Position', [62 476 110 22], ...
+lblEdgeWt = uilabel(tabPreprocess, 'Position', [5 448 55 18], 'Text', 'Edge wt:');
+airplsWepField = uieditfield(tabPreprocess, 'numeric', 'Position', [62 446 110 22], ...
     'Value', 0.1, 'Limits', [0 1]);
-lblAsym = uilabel(tabPreprocess, 'Position', [180 478 60 18], 'Text', 'p (asym):');
-airplsPField = uieditfield(tabPreprocess, 'numeric', 'Position', [237 476 sidebarW-30-232 22], ...
+lblAsym = uilabel(tabPreprocess, 'Position', [180 448 60 18], 'Text', 'p (asym):');
+airplsPField = uieditfield(tabPreprocess, 'numeric', 'Position', [237 446 sidebarW-30-232 22], ...
     'Value', 0.05, 'Limits', [0 1]);
-lblMaxIter = uilabel(tabPreprocess, 'Position', [5 450 70 18], 'Text', 'Max iter:');
-airplsIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [80 448 100 22], ...
+lblMaxIter = uilabel(tabPreprocess, 'Position', [5 420 70 18], 'Text', 'Max iter:');
+airplsIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [80 418 100 22], ...
     'Value', 20, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
 airplsHandles = [lblLambda, airplsLambdaField, lblDiffOrder, airplsOrderField, ...
     lblEdgeWt, airplsWepField, lblAsym, airplsPField, lblMaxIter, airplsIterField];
 set(airplsHandles, 'Visible', 'off');
 
 % SNIP parameters (visible when Method = SNIP), same footprint again.
-lblSnipIter = uilabel(tabPreprocess, 'Position', [5 506 110 18], 'Text', 'Iterations (M):');
-snipIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 504 sidebarW-170 22], ...
+lblSnipIter = uilabel(tabPreprocess, 'Position', [5 476 110 18], 'Text', 'Iterations (M):');
+snipIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 474 sidebarW-170 22], ...
     'Value', 40, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
-snipLLSCheck = uicheckbox(tabPreprocess, 'Position', [5 478 sidebarW-30 22], ...
+snipLLSCheck = uicheckbox(tabPreprocess, 'Position', [5 448 sidebarW-30 22], ...
     'Text', 'Use LLS transform', 'Value', true);
 snipHandles = [lblSnipIter, snipIterField, snipLLSCheck];
 set(snipHandles, 'Visible', 'off');
 
-uibutton(tabPreprocess, 'push', 'Position', [5 416 sidebarW-30 28], ...
+uibutton(tabPreprocess, 'push', 'Position', [5 386 sidebarW-30 28], ...
     'Text', 'Preview baseline', 'ButtonPushedFcn', @(s,e) onPreviewBaseline());
-uibutton(tabPreprocess, 'push', 'Position', [5 382 sidebarW-30 28], ...
+uibutton(tabPreprocess, 'push', 'Position', [5 352 sidebarW-30 28], ...
     'Text', 'Subtract baseline', 'ButtonPushedFcn', @(s,e) onSubtractBaseline());
 
-uilabel(tabPreprocess, 'Position', [5 342 sidebarW-30 18], 'Text', 'Smoothing (Savitzky-Golay)', 'FontWeight', 'bold');
-uilabel(tabPreprocess, 'Position', [5 316 110 18], 'Text', 'Window length:');
-smoothWinField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 314 sidebarW-170 22], ...
+uilabel(tabPreprocess, 'Position', [5 312 sidebarW-30 18], 'Text', 'Smoothing (Savitzky-Golay)', 'FontWeight', 'bold');
+uilabel(tabPreprocess, 'Position', [5 286 110 18], 'Text', 'Window length:');
+smoothWinField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 284 sidebarW-170 22], ...
     'Value', 11, 'Limits', [3 Inf], 'RoundFractionalValues', 'on');
-uilabel(tabPreprocess, 'Position', [5 288 110 18], 'Text', 'Poly order:');
-smoothOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 286 sidebarW-170 22], ...
+uilabel(tabPreprocess, 'Position', [5 258 110 18], 'Text', 'Poly order:');
+smoothOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 256 sidebarW-170 22], ...
     'Value', 3, 'Limits', [0 Inf], 'RoundFractionalValues', 'on');
-uibutton(tabPreprocess, 'push', 'Position', [5 254 sidebarW-30 28], ...
+uibutton(tabPreprocess, 'push', 'Position', [5 224 sidebarW-30 28], ...
     'Text', 'Preview smoothing', 'ButtonPushedFcn', @(s,e) onPreviewSmoothing());
-uibutton(tabPreprocess, 'push', 'Position', [5 220 sidebarW-30 28], ...
+uibutton(tabPreprocess, 'push', 'Position', [5 190 sidebarW-30 28], ...
     'Text', 'Apply smoothing', 'ButtonPushedFcn', @(s,e) onApplySmoothing());
 
-uilabel(tabPreprocess, 'Position', [5 192 sidebarW-30 18], 'Text', 'Normalization', 'FontWeight', 'bold');
-uilabel(tabPreprocess, 'Position', [5 166 60 18], 'Text', 'Method:');
-normalizeDD = uidropdown(tabPreprocess, 'Position', [65 164 sidebarW-95 22], ...
+uilabel(tabPreprocess, 'Position', [5 162 sidebarW-30 18], 'Text', 'Normalization', 'FontWeight', 'bold');
+uilabel(tabPreprocess, 'Position', [5 136 60 18], 'Text', 'Method:');
+normalizeDD = uidropdown(tabPreprocess, 'Position', [65 134 sidebarW-95 22], ...
     'Items', {'None','Max = 1','Area = 1'}, 'Value', 'None');
-uibutton(tabPreprocess, 'push', 'Position', [5 130 sidebarW-30 28], ...
+uibutton(tabPreprocess, 'push', 'Position', [5 100 sidebarW-30 28], ...
     'Text', 'Apply normalization', 'ButtonPushedFcn', @(s,e) onApplyNormalization());
 
-uibutton(tabPreprocess, 'push', 'Position', [5 88 sidebarW-30 30], ...
+uibutton(tabPreprocess, 'push', 'Position', [5 58 sidebarW-30 30], ...
     'Text', 'Reset to raw', 'ButtonPushedFcn', @(s,e) onResetToRaw());
 
 % ---- Peaks tab -------------------------------------------------------------
-uilabel(tabPeaks, 'Position', [5 560 sidebarW-30 24], 'WordWrap', 'on', ...
+uilabel(tabPeaks, 'Position', [5 530 sidebarW-30 24], 'WordWrap', 'on', ...
     'Text', 'Click "Add peak", then click on the plot to place it. Min/Max columns are optional per-parameter fit bounds (blank = default bounds); Fix pins a parameter to its current value, overriding Min/Max.');
-addPeakBtn = uibutton(tabPeaks, 'push', 'Position', [5 528 sidebarW-30 28], ...
+addPeakBtn = uibutton(tabPeaks, 'push', 'Position', [5 498 sidebarW-30 28], ...
     'Text', 'Add peak', 'ButtonPushedFcn', @(s,e) onAddPeakBtn());
-peaksTable = uitable(tabPeaks, 'Position', [5 200 sidebarW-30 280], ...
+showPeakLabelsCheck = uicheckbox(tabPeaks, 'Position', [5 466 sidebarW-30 22], ...
+    'Text', 'Show position/FWHM values on plot', 'Value', true, ...
+    'ValueChangedFcn', @(s,e) onTogglePeakLabels());
+peaksTable = uitable(tabPeaks, 'Position', [5 170 sidebarW-30 280], ...
     'ColumnName', {'Shape','Center','Fix','C.Min','C.Max','FWHM','Fix','F.Min','F.Max','Height','Fix','H.Min','H.Max'}, ...
     'ColumnFormat', {{'Gaussian','Lorentzian','Pseudo-Voigt','Fano','Pearson VII','True Voigt'}, ...
         'numeric','logical','numeric','numeric','numeric','logical','numeric','numeric','numeric','logical','numeric','numeric'}, ...
     'ColumnWidth', {90, 55, 30, 45, 45, 55, 30, 45, 45, 55, 30, 45, 45}, ...
     'ColumnEditable', true(1,13), 'Data', cell(0,13));
-uibutton(tabPeaks, 'push', 'Position', [5 166 sidebarW-30 28], ...
+uibutton(tabPeaks, 'push', 'Position', [5 136 sidebarW-30 28], ...
     'Text', 'Remove selected peak', 'ButtonPushedFcn', @(s,e) onRemovePeak());
-uibutton(tabPeaks, 'push', 'Position', [5 132 sidebarW-30 28], ...
+uibutton(tabPeaks, 'push', 'Position', [5 102 sidebarW-30 28], ...
     'Text', 'Clear all peaks', 'ButtonPushedFcn', @(s,e) onClearPeaks());
 
-uilabel(tabPeaks, 'Position', [5 94 100 18], 'Text', 'Background:');
-backgroundDD = uidropdown(tabPeaks, 'Position', [110 92 sidebarW-140 22], ...
+uilabel(tabPeaks, 'Position', [5 64 100 18], 'Text', 'Background:');
+backgroundDD = uidropdown(tabPeaks, 'Position', [110 62 sidebarW-140 22], ...
     'Items', {'None','Constant','Linear','Quadratic','Cubic'}, 'Value', 'None');
 
-fitBtn = uibutton(tabPeaks, 'push', 'Position', [5 52 (sidebarW-40)/2 34], ...
+fitBtn = uibutton(tabPeaks, 'push', 'Position', [5 22 (sidebarW-40)/2 34], ...
     'Text', 'Fit', 'FontWeight', 'bold', 'ButtonPushedFcn', @(s,e) onFit());
-stopFitBtn = uibutton(tabPeaks, 'push', 'Position', [15+(sidebarW-40)/2 52 (sidebarW-40)/2 34], ...
+stopFitBtn = uibutton(tabPeaks, 'push', 'Position', [15+(sidebarW-40)/2 22 (sidebarW-40)/2 34], ...
     'Text', 'Stop fit', 'Visible', 'off', 'ButtonPushedFcn', @(s,e) onStopFit());
 
 % ---- Results tab -----------------------------------------------------------
-resultsTable = uitable(tabResults, 'Position', [5 340 sidebarW-30 200], ...
+resultsTable = uitable(tabResults, 'Position', [5 310 sidebarW-30 200], ...
     'ColumnName', {'Peak','Shape','Center','+/-','FWHM','+/-','Height','+/-','Area'}, ...
-    'ColumnWidth', {40, 95, 60, 55, 60, 55, 60, 55, 65}, ...
+    'ColumnWidth', {40, 95, 85, 55, 60, 55, 60, 55, 90}, ...
     'ColumnEditable', false(1,9), 'Data', cell(0,9));
-statsLabel = uilabel(tabResults, 'Position', [5 226 sidebarW-30 110], ...
+statsLabel = uilabel(tabResults, 'Position', [5 196 sidebarW-30 110], ...
     'Text', 'Fit statistics: -', 'VerticalAlignment', 'top');
-uibutton(tabResults, 'push', 'Position', [5 194 sidebarW-30 28], ...
+uibutton(tabResults, 'push', 'Position', [5 164 sidebarW-30 28], ...
     'Text', 'Export results (CSV)...', 'ButtonPushedFcn', @(s,e) onExportResults());
-uibutton(tabResults, 'push', 'Position', [5 160 sidebarW-30 28], ...
+uibutton(tabResults, 'push', 'Position', [5 130 sidebarW-30 28], ...
     'Text', 'Save fit figure...', 'ButtonPushedFcn', @(s,e) onSaveFigure());
-uibutton(tabResults, 'push', 'Position', [5 126 sidebarW-30 28], ...
+uibutton(tabResults, 'push', 'Position', [5 96 sidebarW-30 28], ...
     'Text', 'Save data (.mat)...', 'ButtonPushedFcn', @(s,e) onSaveMatFile());
 
 set(findall(fig, 'Type', 'uibutton'), 'FontWeight', 'bold');
@@ -395,6 +418,14 @@ end
 
 % -------------------------------------------------------------------------
     function loadFile(f)
+        % Loading a new file must not silently discard whatever is
+        % currently on screen for the PREVIOUSLY active spectrum (peaks
+        % placed, a completed fit, dragged markers, ...) -- captured into
+        % its list entry before any of the live state below gets
+        % overwritten by the new file.
+        if activeSpectrumIdx > 0
+            loadedSpectra(activeSpectrumIdx).Snapshot = captureSpectrumSnapshot();
+        end
         [~, ~, ext] = fileparts(f);
         if strcmpi(ext, '.dpt')
             % READDPT (myfileutil/) parses OPUS-style .dpt files: plain
@@ -455,6 +486,156 @@ end
         lblFile.Text = sprintf('File: %s', fname_);
         lblNPoints.Text = sprintf('Points: %d', numel(rawX));
         statusLabel.Text = sprintf('Loaded %s (%d points).', fname_, numel(rawX));
+
+        registerLoadedSpectrum(fname_);
+    end
+
+% -------------------------------------------------------------------------
+    function snap = captureSpectrumSnapshot()
+    % Everything needed to bring a spectrum back exactly as it was left:
+    % raw + working data, preprocessing snapshots, analysis range, peaks/
+    % results tables, fit bookkeeping, and the few UI fields that carry
+    % per-spectrum state rather than a global preference.
+        snap.RawX = rawX;
+        snap.RawY = rawY;
+        snap.WorkingY = workingY;
+        snap.CurrentBaseline = currentBaseline;
+        snap.CurrentBaselineMask = currentBaselineMask;
+        snap.CurrentSmoothed = currentSmoothed;
+        snap.BacksubY = backsubY;
+        snap.SmoothedY = smoothedY;
+        snap.RangeXMin = rangeXMin;
+        snap.RangeXMax = rangeXMax;
+        snap.Xi = xi;
+        snap.PeaksData = peaksTable.Data;
+        snap.ResultsData = resultsTable.Data;
+        snap.StatsText = statsLabel.Text;
+        snap.LastFitPeaks = lastFitPeaks;
+        snap.LastFitBgDegree = lastFitBgDegree;
+        snap.LastFitBgCoeffs = lastFitBgCoeffs;
+        snap.LastFitWorkingY = lastFitWorkingY;
+        snap.BackgroundValue = backgroundDD.Value;
+        snap.FileLabelText = lblFile.Text;
+        snap.NPointsText = lblNPoints.Text;
+        snap.XLim = ax.XLim;
+        snap.YLim = ax.YLim;
+        snap.RangeMinFieldValue = rangeMinField.Value;
+        snap.RangeMaxFieldValue = rangeMaxField.Value;
+    end
+
+% -------------------------------------------------------------------------
+    function restoreSpectrumSnapshot(snap)
+        rawX = snap.RawX;
+        rawY = snap.RawY;
+        workingY = snap.WorkingY;
+        currentBaseline = snap.CurrentBaseline;
+        currentBaselineMask = snap.CurrentBaselineMask;
+        currentSmoothed = snap.CurrentSmoothed;
+        backsubY = snap.BacksubY;
+        smoothedY = snap.SmoothedY;
+        rangeXMin = snap.RangeXMin;
+        rangeXMax = snap.RangeXMax;
+        xi = snap.Xi;
+        lastFitPeaks = snap.LastFitPeaks;
+        lastFitBgDegree = snap.LastFitBgDegree;
+        lastFitBgCoeffs = snap.LastFitBgCoeffs;
+        lastFitWorkingY = snap.LastFitWorkingY;
+        backgroundDD.Value = snap.BackgroundValue;
+        rangeMinField.Value = snap.RangeMinFieldValue;
+        rangeMaxField.Value = snap.RangeMaxFieldValue;
+
+        kids = findall(ax);
+        kids(kids == ax) = [];
+        delete(kids);
+
+        peaksTable.Data = snap.PeaksData;
+        scroll(peaksTable, 'top');
+        removeStyle(peaksTable);
+        resultsTable.Data = snap.ResultsData;
+        scroll(resultsTable, 'top');
+        statsLabel.Text = snap.StatsText;
+        clearResiduals();
+
+        plot(ax, rawX, rawY, 'Color', [0.75 0.75 0.75], 'LineWidth', 1, ...
+            'PickableParts', 'none', 'Tag', 'rawLine');
+        hold(ax, 'on');
+        redrawWorking();
+        if ~isempty(rangeXMin)
+            redrawRangeOverlay(rangeXMin, rangeXMax);
+        end
+        redrawPeakMarkers();
+        redrawPeakComponentPreviews();
+        redrawTotalFitOverlay();
+        hold(ax, 'off');
+        ax.XLim = snap.XLim;
+        ax.YLim = snap.YLim;
+
+        lblFile.Text = snap.FileLabelText;
+        lblNPoints.Text = snap.NPointsText;
+    end
+
+% -------------------------------------------------------------------------
+    function redrawTotalFitOverlay()
+    % Restores the total-fit curve (and background curve, if one was
+    % fitted) that ONFIT itself draws -- needed after switching back to a
+    % spectrum that was already fitted, since REDRAWPEAKCOMPONENTPREVIEWS
+    % only recreates the per-peak dashed curves, not their sum. Skipped
+    % if the peak count no longer matches the fit's own bookkeeping (peaks
+    % added/removed since) -- that fit is stale, nothing sound to redraw.
+        clearTag('fitLine');
+        clearTag('backgroundFitLine');
+        if isempty(lastFitPeaks) || isempty(xi)
+            return
+        end
+        d = peaksTable.Data;
+        n = size(d, 1);
+        if numel(lastFitPeaks) ~= n
+            return
+        end
+        hold(ax, 'on');
+        if lastFitBgDegree >= 0
+            totalCurve = polyval(lastFitBgCoeffs, xi);
+            plot(ax, xi, totalCurve, ':', 'Color', [0.55 0.35 0.1], 'LineWidth', 1.2, ...
+                'PickableParts', 'none', 'Tag', 'backgroundFitLine');
+        else
+            totalCurve = zeros(size(xi));
+        end
+        for k = 1:n
+            shape = d{k,1};
+            if isequal(lastFitPeaks(k).Shape, shape)
+                extraVal = lastFitPeaks(k).ExtraValue;
+            else
+                extraVal = defaultExtraGuess(shape, d{k,6});
+            end
+            comp = peakModel(xi, shape, d{k,10}, d{k,6}, d{k,2}, extraVal);
+            totalCurve = totalCurve + comp;
+        end
+        plot(ax, xi, totalCurve, 'r-', 'LineWidth', 1.5, 'PickableParts', 'none', 'Tag', 'fitLine');
+        hold(ax, 'off');
+    end
+
+% -------------------------------------------------------------------------
+    function registerLoadedSpectrum(fname_)
+        loadedSpectra(end+1) = struct('FileName', fname_, 'Snapshot', captureSpectrumSnapshot());
+        activeSpectrumIdx = numel(loadedSpectra);
+        spectrumDD.Items = {loadedSpectra.FileName};
+        spectrumDD.ItemsData = 1:numel(loadedSpectra);
+        spectrumDD.Value = activeSpectrumIdx;
+    end
+
+% -------------------------------------------------------------------------
+    function onSpectrumSelected()
+        newIdx = spectrumDD.Value;
+        if isempty(newIdx) || newIdx == activeSpectrumIdx
+            return
+        end
+        % Save the state being navigated AWAY from first, so switching
+        % back later restores it exactly as left (unsaved peak edits,
+        % dragged markers, etc. included), then load the selected one.
+        loadedSpectra(activeSpectrumIdx).Snapshot = captureSpectrumSnapshot();
+        activeSpectrumIdx = newIdx;
+        restoreSpectrumSnapshot(loadedSpectra(activeSpectrumIdx).Snapshot);
+        statusLabel.Text = sprintf('Switched to %s.', loadedSpectra(activeSpectrumIdx).FileName);
     end
 
 % -------------------------------------------------------------------------
@@ -822,10 +1003,12 @@ end
                 'MarkerFaceColor', peakColors(k,:), 'MarkerSize', 6, ...
                 'PickableParts', 'all', 'ButtonDownFcn', @(s,e) onPeakMarkerDown(k), ...
                 'Tag', 'peakMarker');
-            text(ax, centers(k), heights(k) + labelOffset, sprintf('%.1f', centers(k)), ...
-                'Color', peakColors(k,:), 'FontSize', 12, 'FontWeight', 'bold', ...
-                'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
-                'PickableParts', 'none', 'Tag', 'peakMarker');
+            if showPeakLabels
+                text(ax, centers(k), heights(k) + labelOffset, sprintf('%.1f', centers(k)), ...
+                    'Color', peakColors(k,:), 'FontSize', 12, 'FontWeight', 'bold', ...
+                    'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
+                    'PickableParts', 'none', 'Tag', 'peakMarker');
+            end
             % FWHM marker: placed at the half-max point on the peak's right
             % flank (center + FWHM/2, height/2) -- the standard graphical
             % definition of FWHM -- and draggable the same way, but only
@@ -838,10 +1021,12 @@ end
                 'MarkerFaceColor', peakColors(k,:), 'MarkerSize', 6, ...
                 'PickableParts', 'all', 'ButtonDownFcn', @(s,e) onFwhmMarkerDown(k), ...
                 'Tag', 'peakMarker');
-            text(ax, fwhmX, fwhmY - labelOffset, sprintf('%.1f', fwhms(k)), ...
-                'Color', peakColors(k,:), 'FontSize', 12, 'FontWeight', 'bold', ...
-                'HorizontalAlignment', 'center', 'VerticalAlignment', 'top', ...
-                'PickableParts', 'none', 'Tag', 'peakMarker');
+            if showPeakLabels
+                text(ax, fwhmX, fwhmY - labelOffset, sprintf('%.1f', fwhms(k)), ...
+                    'Color', peakColors(k,:), 'FontSize', 12, 'FontWeight', 'bold', ...
+                    'HorizontalAlignment', 'center', 'VerticalAlignment', 'top', ...
+                    'PickableParts', 'none', 'Tag', 'peakMarker');
+            end
             % Colors only the Shape dropdown's displayed text (a style
             % layer), never the underlying cell value -- onFit/peakModel
             % match Shape by exact string ('Gaussian', 'Fano', ...), which
@@ -850,6 +1035,12 @@ end
                 'cell', [k, 1]);
         end
         hold(ax, 'off');
+    end
+
+% -------------------------------------------------------------------------
+    function onTogglePeakLabels()
+        showPeakLabels = showPeakLabelsCheck.Value;
+        redrawPeakMarkers();
     end
 
 % -------------------------------------------------------------------------
