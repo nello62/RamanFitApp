@@ -31,11 +31,14 @@ RamanFitApp('spectrum.txt') % load the given file immediately
 | `.txt`, `.csv`, `.dat` | Two columns, space/tab/comma delimited, with or without a header | Read with `readmatrix` |
 | `.dpt` | Two comma-separated columns, no header (typical OPUS/Bruker export) | Read with `readdpt.m` |
 | `.spc` | Binary Galactic/GRAMS spectrum format (also produced/supported by many instruments, including Jobin-Yvon/Horiba systems) | Read with `readspc.m` |
+| `.wdf` | Renishaw WiRE binary spectrum format | Read with `readwdf.m` |
 
 For `.txt`/`.csv`/`.dat`/`.dpt` files, the first column is the wavenumber
-(X axis), the second the intensity (Y axis); for `.spc` files the axis
-and intensity are read directly from the file's own binary header/data
-blocks. Data is automatically sorted by increasing X on load.
+(X axis), the second the intensity (Y axis); for `.spc`/`.wdf` files the
+axis and intensity are read directly from the file's own binary header/
+data blocks. Data is automatically sorted by increasing X on load. If a
+`.spc`/`.wdf` file contains more than one spectrum (e.g. a map or a time
+series), only the first is loaded, with a warning.
 
 Note on `.spc`: some files written in the older ("version 77") SPC
 sub-format have been observed to come back with implausible axis/
@@ -302,6 +305,7 @@ to save.
 | `apls.m` | P.J. Cadusch et al. 2013 (public algorithm, original implementation) | `APLS` baseline-subtraction method |
 | `readdpt.m` | personal library (`myfileutil/`) | Reading `.dpt` files |
 | `readspc.m` (wraps `GSSpcRead.m` + `GSSpcReadStructure.m`, `GetSPCAxisTypes.m`, `GetTechniques.m`, `GSToolsAbout.m`, `LocateItem.m`, `trimstr.m`, `trimleft.m`, `trimright.m`) | K. De Gussem, GSTools (GPLv3/BSD dual license, from `prog/GSTools/`) | Reading `.spc` files |
+| `readwdf.m` (wraps `WdfReader.m` + `WdfError.m`, `WdfBlockID.m`, `WiREDataType.m`, `WiREDataUnit.m`, `WiREKeys.m`, `WiREMeasurementType.m`, `WiREScanType.m`, `WiREScanBasicType.m`, `WiREFocusMode.m`) | Renishaw plc (Apache-2.0/BSD-3-Clause dual license, from `prog/RamanFit/Renishaw_wdf_access/`) | Reading `.wdf` files |
 
 Full bibliographic references for the baseline-subtraction methods are in
 [`REFERENCES.txt`](REFERENCES.txt).

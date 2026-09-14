@@ -119,3 +119,32 @@ sub-format have been observed, during integration testing, to produce
 implausible axis/intensity values -- not something specific to this
 wrapper; re-exporting the spectrum in the newer SPC format (or as
 .txt/.dpt) avoids it.
+
+
+.wdf file format  (readwdf.m, wraps WdfReader.m and its WiRE helpers)
+-----------------------------------------------------------------------
+Reads the Renishaw WiRE ".wdf" binary spectrum format, using Renishaw's
+own official MATLAB access package (downloaded from MathWorks File
+Exchange).
+
+  Renishaw plc,
+  "Renishaw WiRE WDF access package for MATLAB"
+  https://www.mathworks.com/matlabcentral/fileexchange (search "Renishaw
+  WiRE WDF"); also on GitHub as Renishaw/wdf-matlab.
+
+Implementation: WdfReader.m, WdfError.m, WdfBlockID.m, WiREDataType.m,
+WiREDataUnit.m, WiREKeys.m, WiREMeasurementType.m, WiREScanType.m,
+WiREScanBasicType.m, WiREFocusMode.m -- copyright Renishaw plc,
+dual-licensed Apache-2.0 / BSD-3-Clause (see LICENSE.APACHE and
+LICENSE.BSD in `prog/RamanFit/Renishaw_wdf_access/`, the original,
+un-trimmed package this subset was copied from). This subset covers
+read-only, single-spectrum access; the package's write support
+(WdfCreate.m) and the standalone WdfUtils.m helper were not needed and
+are not included. RamanFitApp's own `readwdf.m` is a thin wrapper around
+WdfReader, original to this project.
+
+Verified during integration by a synthetic round-trip test: a spectrum
+written with Renishaw's own WdfCreate class and read back with the
+copied WdfReader subset matched to within single-precision rounding (the
+format's own storage precision) -- no real-world .wdf sample file was
+available to test against directly.

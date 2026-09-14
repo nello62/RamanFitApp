@@ -420,7 +420,7 @@ end
 
 % -------------------------------------------------------------------------
     function onLoadSpectrum()
-        [f, p] = pickOpenFile({'*.txt;*.csv;*.dat;*.dpt;*.spc','Text/CSV/DPT/SPC spectra (*.txt,*.csv,*.dat,*.dpt,*.spc)'; '*.*','All files'}, ...
+        [f, p] = pickOpenFile({'*.txt;*.csv;*.dat;*.dpt;*.spc;*.wdf','Text/CSV/DPT/SPC/WDF spectra (*.txt,*.csv,*.dat,*.dpt,*.spc,*.wdf)'; '*.*','All files'}, ...
             'Select a Raman spectrum');
         if isequal(f, 0)
             return
@@ -454,6 +454,11 @@ end
             % READSPC wraps the (third-party) GSSpcRead to parse the
             % binary Galactic/GRAMS .spc format -- see REFERENCES.txt.
             [x, y] = readspc(f);
+            data = [x(:), y(:)];
+        elseif strcmpi(ext, '.wdf')
+            % READWDF wraps Renishaw's own WdfReader class to parse the
+            % binary WiRE .wdf format -- see REFERENCES.txt.
+            [x, y] = readwdf(f);
             data = [x(:), y(:)];
         else
             data = readmatrix(f);
