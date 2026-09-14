@@ -43,6 +43,17 @@ it was left in — raw/working data, analysis range, peaks, results table,
 statistics, and, if a fit had been run, the total fit curve (and any
 fitted background) on the plot.
 
+**Copy peaks to other spectra** (Peaks tab, enabled once 2+ spectra are
+loaded) copies the active spectrum's current peaks and Background setting
+into every other loaded spectrum, ready to be fitted with the same model
+— useful when the same set of bands is expected across a series of
+related spectra. Any fit a target spectrum previously had is cleared
+(it belonged to a different set of peaks), so it's ready for a clean
+Fit. Note that absolute Center/FWHM/Height values are copied as-is: if
+spectra have a slight calibration shift between them, the copied peak
+positions may need a small manual adjustment (e.g. by dragging their
+markers) before fitting.
+
 ## Window layout
 
 - **Main plot** (top right): raw spectrum (grey), "working" spectrum after

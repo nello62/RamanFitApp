@@ -305,7 +305,10 @@ addPeakBtn = uibutton(tabPeaks, 'push', 'Position', [5 498 sidebarW-30 28], ...
 showPeakLabelsCheck = uicheckbox(tabPeaks, 'Position', [5 466 sidebarW-30 22], ...
     'Text', 'Show position/FWHM values on plot', 'Value', true, ...
     'ValueChangedFcn', @(s,e) onTogglePeakLabels());
-peaksTable = uitable(tabPeaks, 'Position', [5 170 sidebarW-30 280], ...
+copyPeaksBtn = uibutton(tabPeaks, 'push', 'Position', [5 428 sidebarW-30 28], ...
+    'Text', 'Copy peaks to other spectra', 'Enable', 'off', ...
+    'ButtonPushedFcn', @(s,e) onCopyPeaksToOthers());
+peaksTable = uitable(tabPeaks, 'Position', [5 170 sidebarW-30 248], ...
     'ColumnName', {'Shape','Center','Fix','C.Min','C.Max','FWHM','Fix','F.Min','F.Max','Height','Fix','H.Min','H.Max'}, ...
     'ColumnFormat', {{'Gaussian','Lorentzian','Pseudo-Voigt','Fano','Pearson VII','True Voigt'}, ...
         'numeric','logical','numeric','numeric','numeric','logical','numeric','numeric','numeric','logical','numeric','numeric'}, ...
@@ -674,6 +677,43 @@ end
         spectrumDD.Items = {loadedSpectra.FileName};
         spectrumDD.ItemsData = 1:numel(loadedSpectra);
         spectrumDD.Value = activeSpectrumIdx;
+        if numel(loadedSpectra) > 1
+            copyPeaksBtn.Enable = 'on';
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onCopyPeaksToOthers()
+    % Copies the active spectrum's current peaks (+ Background choice)
+    % into every OTHER loaded spectrum's snapshot, so switching to any of
+    % them starts already set up for a Fit with the same model. Any fit
+    % that spectrum previously had is cleared -- it belonged to a
+    % different set of peaks, so keeping it around risks a stale/
+    % mismatched overlay when switching to it (REDRAWTOTALFITOVERLAY and
+    % REDRAWRESIDUALSOVERLAY both key off LASTFITPEAKS being non-empty).
+        if numel(loadedSpectra) < 2
+            return
+        end
+        srcPeaks = peaksTable.Data;
+        srcBackground = backgroundDD.Value;
+        nCopied = 0;
+        for i = 1:numel(loadedSpectra)
+            if i == activeSpectrumIdx
+                continue
+            end
+            snap = loadedSpectra(i).Snapshot;
+            snap.PeaksData = srcPeaks;
+            snap.BackgroundValue = srcBackground;
+            snap.ResultsData = cell(0,9);
+            snap.StatsText = 'Fit statistics: -';
+            snap.LastFitPeaks = struct('Shape', {}, 'I', {}, 'I_err', {}, 'FWHM', {}, 'FWHM_err', {}, 'x0', {}, 'x0_err', {}, 'ExtraName', {}, 'ExtraValue', {});
+            snap.LastFitBgDegree = -1;
+            snap.LastFitBgCoeffs = [];
+            snap.LastFitWorkingY = [];
+            loadedSpectra(i).Snapshot = snap;
+            nCopied = nCopied + 1;
+        end
+        statusLabel.Text = sprintf('Copied %d peak(s) to %d other spectrum/spectra.', size(srcPeaks,1), nCopied);
     end
 
 % -------------------------------------------------------------------------
