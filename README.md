@@ -4,8 +4,8 @@ MATLAB app (App Designer, single window) for fitting experimental Raman
 spectra with sums of peak lineshapes — baseline subtraction, smoothing,
 and normalization as optional preprocessing steps.
 
-Not part of the G09/G16 Gaussian-output toolbox: this works on
-**experimental** data (real measurements), not quantum-chemistry results.
+Works on **experimental** data (real measurements), not quantum-chemistry
+results.
 
 ## Requirements
 

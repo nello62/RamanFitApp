@@ -1,298 +1,298 @@
-# RamanFit — Manuale utente
+# RamanFit — User Manual
 
-`RamanFitApp.m` è un'applicazione MATLAB (App Designer, finestra singola) per
-il fit di spettri Raman sperimentali con somme di funzioni di picco, con
-sottrazione del fondo, smoothing e normalizzazione come passaggi opzionali di
-preprocessing.
+`RamanFitApp.m` is a MATLAB application (App Designer, single window) for
+fitting experimental Raman spectra with sums of peak lineshapes, with
+baseline subtraction, smoothing, and normalization as optional
+preprocessing steps.
 
-Non fa parte del toolbox G09/G16 di analisi degli output di Gaussian: lavora
-su dati **sperimentali** (misure reali), non su risultati di calcoli quantistici.
+It works on **experimental** data (real measurements), not on
+quantum-chemistry calculation results.
 
-## Requisiti
+## Requirements
 
-- MATLAB con **Optimization Toolbox** (per `lsqcurvefit`, il motore di fit)
-- **Signal Processing Toolbox** (per `sgolayfilt`, lo smoothing Savitzky-Golay)
-- Nessuna dipendenza esterna al di fuori di MATLAB: tutte le funzioni di
-  supporto (`gausslor.m`, `backcor.m`, `airPLS.m`, `readdpt.m`) sono incluse
-  nella cartella `RamanFit/` stessa.
+- MATLAB with **Optimization Toolbox** (for `lsqcurvefit`, the fit engine)
+- **Signal Processing Toolbox** (for `sgolayfilt`, Savitzky-Golay
+  smoothing)
+- No external dependencies beyond MATLAB itself: every helper function
+  (`gausslor.m`, `backcor.m`, `airPLS.m`, `readdpt.m`) is included in the
+  `RamanFit/` folder itself.
 
-## Avvio
+## Starting the app
 
 ```matlab
-RamanFitApp()              % finestra vuota, poi "Load spectrum..."
-RamanFitApp('spettro.txt') % carica subito il file indicato
+RamanFitApp()              % empty window, then "Load spectrum..."
+RamanFitApp('spectrum.txt') % load the given file immediately
 ```
 
-## Formati di file supportati
+## Supported file formats
 
-| Estensione | Formato | Note |
+| Extension | Format | Notes |
 |---|---|---|
-| `.txt`, `.csv`, `.dat` | Due colonne, delimitatore spazio/tab/virgola, con o senza intestazione | Letto con `readmatrix` |
-| `.dpt` | Due colonne separate da virgola, senza intestazione (tipico export OPUS/Bruker) | Letto con `readdpt.m` |
+| `.txt`, `.csv`, `.dat` | Two columns, space/tab/comma delimited, with or without a header | Read with `readmatrix` |
+| `.dpt` | Two comma-separated columns, no header (typical OPUS/Bruker export) | Read with `readdpt.m` |
 
-In entrambi i casi la prima colonna è il numero d'onda (asse X), la seconda
-l'intensità (asse Y). I dati vengono automaticamente ordinati per X
-crescente al caricamento.
+In both cases the first column is the wavenumber (X axis), the second the
+intensity (Y axis). Data is automatically sorted by increasing X on load.
 
-## Più spettri contemporaneamente
+## Multiple spectra at once
 
-**Load spectrum...** aggiunge un nuovo spettro invece di sostituire quello
-corrente. Il menu a tendina **Spectra:** nella barra laterale elenca tutti
-gli spettri caricati nella sessione: selezionandone uno si passa a
-lavorarci, ripristinando esattamente lo stato in cui era stato lasciato —
-dati grezzi/di lavoro, range di analisi, picchi, tabella dei risultati,
-statistiche e, se era stato eseguito un fit, anche la curva totale (e
-l'eventuale fondo fittato) sul grafico.
+**Load spectrum...** adds a new spectrum instead of replacing the current
+one. The **Spectra:** dropdown in the sidebar lists every spectrum loaded
+in the session: selecting one switches to it, restoring exactly the state
+it was left in — raw/working data, analysis range, peaks, results table,
+statistics, and, if a fit had been run, the total fit curve (and any
+fitted background) on the plot.
 
-## Struttura della finestra
+## Window layout
 
-- **Grafico principale** (in alto a destra): spettro grezzo (grigio), spettro
-  "di lavoro" dopo le elaborazioni (blu), overlay del fondo (arancione
-  tratteggiato), curva di fit totale (rossa), componenti dei singoli picchi
-  (tratteggiate, un colore diverso per ciascun picco — vedi
-  [Marker dei picchi sul grafico](#marker-dei-picchi-sul-grafico)).
-- **Grafico dei residui** (sotto, più piccolo): `dato - fit` dopo ogni fit,
-  con asse X agganciato al grafico principale (zoom/pan sincronizzati).
-- **Barra laterale**: pulsante di caricamento, selettore del range di
-  analisi, pulsante **Reset Y axis** (riscala l'asse Y ai soli dati nel
-  range di analisi selezionato — o all'intero spettro se non ne è stato
-  impostato uno — eliminando lo spazio vuoto lasciato ad es. da un residuo
-  di fondo non ancora sottratto), e tre schede evidenziate (Preprocess /
-  Peaks / Results).
+- **Main plot** (top right): raw spectrum (grey), "working" spectrum after
+  processing (blue), baseline overlay (dashed orange), total fit curve
+  (red), individual peak components (dashed, a different color per peak —
+  see [Peak markers on the plot](#peak-markers-on-the-plot)).
+- **Residuals plot** (below, smaller): `data - fit` after each fit, with
+  its X axis linked to the main plot (zoom/pan stay in sync).
+- **Sidebar**: load button, analysis-range selector, **Reset Y axis**
+  button (rescales the Y axis to just the data within the selected
+  analysis range — or the whole spectrum if none is set — removing wasted
+  space left by, e.g., a baseline not yet subtracted), and three
+  highlighted tabs (Preprocess / Peaks / Results).
 
-## Range di analisi
+## Analysis range
 
-Il **range di analisi** (cm⁻¹) restringe sia il calcolo del fondo sia il fit
-alla sola finestra selezionata (se non impostato, si usa l'intero spettro).
+The **analysis range** (cm⁻¹) restricts both the baseline calculation and
+the fit to the selected window only (if not set, the whole spectrum is
+used).
 
-- **Select range (drag on plot)**: premi il pulsante, poi trascina sul
-  grafico da un estremo all'altro della finestra desiderata.
-- I campi **Min/Max** possono anche essere digitati direttamente.
-- **Zoom to range** / **Show full spectrum**: zoom della sola vista, non
-  cambia quali dati entrano nel fit.
-- **Clear range**: torna a usare l'intero spettro.
+- **Select range (drag on plot)**: press the button, then drag on the
+  plot from one end of the desired window to the other.
+- The **Min/Max** fields can also be typed directly.
+- **Zoom to range** / **Show full spectrum**: view-only zoom, does not
+  change which data enters the fit.
+- **Clear range**: goes back to using the whole spectrum.
 
-## Scheda Preprocess
+## Preprocess tab
 
-### Baseline (sottrazione del fondo)
+### Baseline (background subtraction)
 
-Quattro metodi selezionabili dal menu **Method**:
+Four methods selectable from the **Method** menu:
 
-- **backcor** — stima iterativa del fondo con un polinomio e pesi
-  asimmetrici. Parametri: `Order` (grado del polinomio, default 5),
-  `Threshold` (default 0.1), `Cost function` (`sh`/`ah`/`stq`/`atq`, default
-  `atq`).
+- **backcor** — iterative background estimation with a polynomial and
+  asymmetric weights. Parameters: `Order` (polynomial degree, default 5),
+  `Threshold` (default 0.1), `Cost function` (`sh`/`ah`/`stq`/`atq`,
+  default `atq`).
 - **airPLS** — *Adaptive Iteratively Reweighted Penalized Least Squares*.
-  Parametri: `Lambda` (rigidità della curva, default 1e7 — più alto = fondo
-  più liscio), `Diff ord` (ordine delle differenze penalizzate, default 2),
-  `Edge wt` (peso ai bordi, default 0.1), `p (asym)` (asimmetria, default
-  0.05), `Max iter` (default 20).
+  Parameters: `Lambda` (curve stiffness, default 1e7 — higher = smoother
+  baseline), `Diff ord` (penalized-difference order, default 2), `Edge wt`
+  (edge weight, default 0.1), `p (asym)` (asymmetry, default 0.05),
+  `Max iter` (default 20).
 - **SNIP** (*Statistics-sensitive Non-linear Iterative Peak-clipping*) —
-  concettualmente diverso dagli altri due: non fa un fit polinomiale né usa
-  pesi iterativi, "rasa" ogni punto al valor medio dei suoi vicini a
-  distanza crescente, fino a lasciare solo variazioni lente. Parametri:
-  `Iterations (M)` (default 40 — quante iterazioni/distanza massima:
-  qualunque struttura più stretta di ~M punti viene trattata come picco,
-  non come fondo), `Use LLS transform` (default attivo — comprime la
-  dinamica del segnale prima del clipping, utile se ci sono picchi di
-  altezza molto diversa nello stesso spettro).
+  conceptually different from the other methods: it does not fit a
+  polynomial or use iterative weights, it "shaves" each point down to the
+  average of its neighbors at growing distance, leaving only slow
+  variation. Parameters: `Iterations (M)` (default 40 — how many
+  iterations/maximum distance: any feature narrower than ~M points is
+  treated as a peak, not background), `Use LLS transform` (default on —
+  compresses the signal's dynamic range before clipping, useful when
+  peaks of very different heights are present in the same spectrum).
 - **APLS** (*Adaptive-weight Penalized Least Squares*, Cadusch et al.
-  2013) — come `airPLS`, un fit a spline penalizzata (Whittaker), ma con
-  un peso adattivo più semplice e statisticamente motivato: a ogni
-  iterazione, il peso di ciascun punto è la probabilità che il valore
-  osservato provenga per caso dal solo fondo (rumore Poissoniano), dato il
-  fondo stimato al passo precedente — punti ben sopra il fondo (probabili
-  picchi Raman) pesano poco, punti a livello del fondo pesano ~1. Nel
-  paper originale risulta il metodo più accurato su fondi complessi
-  (fluorescenza strutturata). Parametri: `Gamma` (rigidità della curva,
-  default 1e5 — scala molto con i dati, va tipicamente regolato caso per
-  caso, come `Lambda` per `airPLS`), `Diff ord` (1 o 2, default 2 — la
-  variante raccomandata dagli autori), `Max iter` (default 10).
+  2013) — like `airPLS`, a penalized-spline (Whittaker) fit, but with a
+  simpler, statistically motivated weight: at each iteration, the weight
+  of each point is the probability that the observed value could have
+  arisen by chance from the background alone (Poisson noise), given the
+  background estimate from the previous step — points well above the
+  background (likely Raman peaks) get a low weight, points at background
+  level get a weight near 1. In the original paper this is the most
+  accurate method on complex (structured fluorescence) backgrounds.
+  Parameters: `Gamma` (curve stiffness, default 1e5 — scales heavily with
+  the data, typically needs tuning case by case, like `Lambda` for
+  `airPLS`), `Diff ord` (1 or 2, default 2 — the variant recommended by
+  the authors), `Max iter` (default 10).
 
-Flusso di lavoro: **Preview baseline** disegna il fondo stimato come overlay
-senza modificare i dati; **Subtract baseline** lo sottrae effettivamente
-dallo spettro di lavoro. Il calcolo rispetta il range di analisi corrente.
+Workflow: **Preview baseline** draws the estimated background as an
+overlay without modifying the data; **Subtract baseline** actually
+subtracts it from the working spectrum. The calculation respects the
+current analysis range.
 
 ### Smoothing (Savitzky-Golay)
 
-Parametri: `Window length` (lunghezza finestra, dispari, default 11),
-`Poly order` (grado del polinomio locale, default 3). Stesso flusso
-Preview/Apply del fondo: **Preview smoothing** mostra il risultato senza
-applicarlo, **Apply smoothing** lo conferma.
+Parameters: `Window length` (window length, odd, default 11), `Poly
+order` (local polynomial degree, default 3). Same Preview/Apply workflow
+as the baseline: **Preview smoothing** shows the result without applying
+it, **Apply smoothing** confirms it.
 
-Nota: confermare fondo o smoothing invalida automaticamente un'eventuale
-anteprima non confermata dell'altro (evita overlay non più coerenti con i
-dati aggiornati).
+Note: confirming the baseline or the smoothing automatically invalidates
+any unconfirmed preview of the other (avoids overlays that are no longer
+consistent with the updated data).
 
 ### Normalization
 
-Menu **Method**: `None` / `Max = 1` (divide per il massimo nella finestra di
-analisi corrente) / `Area = 1` (divide per l'area integrata nella stessa
-finestra). Utile per confrontare spettri diversi su una scala comune.
+**Method** menu: `None` / `Max = 1` (divides by the maximum within the
+current analysis window) / `Area = 1` (divides by the integrated area in
+the same window). Useful for comparing different spectra on a common
+scale.
 
 ### Reset to raw
 
-Riporta lo spettro di lavoro ai dati grezzi originali, cancellando fondo,
-smoothing, normalizzazione, picchi e risultati del fit.
+Returns the working spectrum to the original raw data, clearing baseline,
+smoothing, normalization, peaks, and fit results.
 
-## Scheda Peaks
+## Peaks tab
 
-### Aggiungere picchi
+### Adding peaks
 
-Premi **Add peak**, poi clicca sul grafico nel punto desiderato: viene
-creato un picco Gaussiano con centro nel punto cliccato, altezza pari al
-valore dei dati in quel punto, e una larghezza iniziale di stima.
+Press **Add peak**, then click on the plot at the desired point: a
+Gaussian peak is created centered at the clicked point, with height equal
+to the data value there, and an initial estimated width.
 
-### Marker dei picchi sul grafico
+### Peak markers on the plot
 
-Ogni picco della tabella è mostrato sul grafico con due marker colorati
-(stesso colore della curva del picco, ciclando sulla palette di default di
-MATLAB), entrambi trascinabili col mouse per correggere a occhio la stima
-iniziale prima del fit:
+Each peak in the table is shown on the plot with two colored markers
+(same color as the peak's curve, cycling through MATLAB's default
+palette), both draggable with the mouse to visually correct the initial
+guess before fitting:
 
-- **Marker di posizione** (triangolo, con etichetta numerica del valore di
-  Center sopra): trascinandolo si aggiornano sia **Center** (orizzontale)
-  sia **Height** (verticale) nella tabella.
-- **Marker FWHM** (cerchio, con etichetta sotto), posizionato al punto di
-  metà altezza del picco (Center + FWHM/2, Height/2): trascinandolo
-  **solo orizzontalmente** si aggiorna FWHM = 2 × (distanza dal centro).
+- **Position marker** (triangle, with a numeric label of the Center value
+  above it): dragging it updates both **Center** (horizontal) and
+  **Height** (vertical) in the table.
+- **FWHM marker** (circle, with a label below it), placed at the peak's
+  half-maximum point (Center + FWHM/2, Height/2): dragging it
+  **horizontally only** updates FWHM = 2 x (distance from the center).
 
-Al rilascio del mouse, la curva tratteggiata di quel picco si ridisegna
-subito con i nuovi valori (per le forme con un parametro extra — Fano,
-Pearson VII, True Voigt — riusa l'ultimo valore fittato se ancora
-compatibile, altrimenti una stima di default ragionevole), così l'effetto
-della modifica è visibile immediatamente senza dover rilanciare il Fit.
+On mouse release, that peak's dashed curve is redrawn immediately with
+the new values (for shapes with an extra parameter — Fano, Pearson VII,
+True Voigt — it reuses the last fitted value if still applicable,
+otherwise a reasonable default guess), so the effect of the change is
+visible immediately without having to rerun Fit.
 
-### Tabella dei picchi
+### Peaks table
 
-| Colonna | Significato |
+| Column | Meaning |
 |---|---|
-| Shape | Forma del picco (menu a tendina per riga, vedi sotto) |
-| Center, FWHM, Height | Parametri base, editabili direttamente (o trascinando i marker sul grafico, vedi sopra) |
-| Fix (accanto a Center/FWHM/Height) | Se spuntato, blocca quel parametro al suo valore corrente durante il fit (vince su eventuali Min/Max) |
-| C.Min/C.Max, F.Min/F.Max, H.Min/H.Max | Limiti opzionali per il fit — lasciare vuoto per usare i limiti di default |
+| Shape | Peak shape (per-row dropdown, see below) |
+| Center, FWHM, Height | Base parameters, directly editable (or by dragging the markers on the plot, see above) |
+| Fix (next to Center/FWHM/Height) | If checked, pins that parameter to its current value during the fit (overrides any Min/Max) |
+| C.Min/C.Max, F.Min/F.Max, H.Min/H.Max | Optional fit bounds — leave blank to use the default bounds |
 
-I limiti di default sono: Height ≥ 0, FWHM tra il doppio della spaziatura
-tipica dei dati e l'intera larghezza dello spettro (evita che un picco
-collassi su un singolo punto rumoroso), Center entro il range dei dati (o
-del range di analisi, se impostato).
+The default bounds are: Height >= 0, FWHM between twice the data's own
+point spacing and the whole spectrum width (prevents a peak from
+collapsing onto a single noisy point), Center within the data range (or
+the analysis range, if set).
 
-### Forme dei picchi disponibili
+### Available peak shapes
 
-| Forma | Parametri | Note |
+| Shape | Parameters | Notes |
 |---|---|---|
-| Gaussian | I, FWHM, x₀ | |
-| Lorentzian | I, FWHM, x₀ | |
-| Pseudo-Voigt | I, FWHM, x₀, `Lor` (0–1) | Combinazione Gauss-Lorentz; `Lor`=0 Gaussiana pura, `Lor`=1 Lorentziana pura |
-| Fano | I, FWHM, x₀, `q` | Lineshape Breit-Wigner-Fano, per bande asimmetriche (es. materiali carboniosi); `q` grande → Lorentziana |
-| Pearson VII | I, FWHM, x₀, `m` | `m`=1 → Lorentziana esatta, `m` grande → Gaussiana esatta |
-| True Voigt | I, FWHM (=FWHM Gaussiana), x₀, `FWHM_L` (Lorentziana) | Convoluzione vera Gauss⊗Lorentz, calcolata per integrazione numerica (non l'approssimazione pseudo-Voigt) |
+| Gaussian | I, FWHM, x0 | |
+| Lorentzian | I, FWHM, x0 | |
+| Pseudo-Voigt | I, FWHM, x0, `Lor` (0-1) | Gauss-Lorentz blend; `Lor`=0 pure Gaussian, `Lor`=1 pure Lorentzian |
+| Fano | I, FWHM, x0, `q` | Breit-Wigner-Fano lineshape, for asymmetric bands (e.g. carbon materials); large `q` -> Lorentzian |
+| Pearson VII | I, FWHM, x0, `m` | `m`=1 -> exact Lorentzian, large `m` -> exact Gaussian |
+| True Voigt | I, FWHM (=Gaussian FWHM), x0, `FWHM_L` (Lorentzian) | True Gauss(x)Lorentz convolution, computed by numerical integration (not the pseudo-Voigt approximation) |
 
-Ogni riga della tabella può usare una forma diversa: il fit può quindi
-mescolare forme diverse nello stesso spettro.
+Each row of the table can use a different shape: the fit can therefore
+mix different shapes in the same spectrum.
 
-### Background (fondo fittato insieme ai picchi)
+### Background (fitted jointly with the peaks)
 
-Menu **Background**: `None` / `Constant` / `Linear` / `Quadratic` / `Cubic`.
-A differenza della sottrazione del fondo in Preprocess (fatta *prima* e poi
-fissata), qui i coefficienti del polinomio vengono stimati **insieme** ai
-picchi nella stessa ottimizzazione — utile quando fondo e picchi sono
-difficili da separare a priori. Il fondo stimato appare come curva
-punteggiata sul grafico.
+**Background** menu: `None` / `Constant` / `Linear` / `Quadratic` /
+`Cubic`. Unlike the baseline subtraction in Preprocess (done *beforehand*
+and then fixed), here the polynomial coefficients are estimated
+**together** with the peaks in the same optimization — useful when the
+background and the peaks are hard to separate beforehand. The estimated
+background appears as a dotted curve on the plot.
 
 ### Fit
 
-Il pulsante **Fit** si disabilita e mostra "Fitting..." durante
-l'esecuzione. Al termine mostra di nuovo "Fit", sia in caso di successo
-che di errore.
+The **Fit** button disables itself and shows "Fitting..." while running.
+When done it shows "Fit" again, whether it succeeded or errored.
 
-Durante il fit la barra di stato in basso mostra in tempo reale
-l'iterazione corrente e il valore di chi-quadro (`chi^2 = SSE`), utile per
-valutare l'andamento della convergenza. Accanto a **Fit** compare anche
-**Stop fit**: interrompe l'ottimizzazione mantenendo il miglior risultato
-trovato fino a quel momento, senza generare un errore — equivalente a un
-fit che si è fermato naturalmente a quell'iterazione.
+While fitting, the status bar at the bottom shows the current iteration
+and chi-square value (`chi^2 = SSE`) live, useful for gauging how the
+convergence is going. Next to **Fit**, a **Stop fit** button also
+appears: it stops the optimization while keeping the best result found so
+far, without raising an error — equivalent to a fit that stopped
+naturally at that iteration.
 
-Il motore è `lsqcurvefit` (somma dei quadrati degli scarti, non pesata),
-con tolleranze strette e limiti di iterazione generosi per assicurare la
-convergenza in un solo click.
+The engine is `lsqcurvefit` (unweighted sum of squared residuals), with
+tight tolerances and generous iteration limits to help convergence happen
+in a single click.
 
-## Scheda Results
+## Results tab
 
-### Tabella dei risultati
+### Results table
 
-Colonne: `Peak`, `Shape`, `Center` (± errore), `FWHM` (± errore), `Height`
-(± errore), `Area` (calcolata per integrazione numerica, valida per
-qualunque forma).
+Columns: `Peak`, `Shape`, `Center` (+/- error), `FWHM` (+/- error),
+`Height` (+/- error), `Area` (computed by numerical integration, valid
+for any shape).
 
-Gli **errori** (colonne "+/-") sono stime standard per i minimi quadrati
-non lineari: `Cov(θ) = σ²·(JᵀJ)⁻¹` con `σ² = SSE/dof`, dalla Jacobiana di
-`lsqcurvefit` nel punto di minimo. Un parametro con **Fix** attivo ha
-errore esattamente `0` (non viene stimato, non consuma un grado di
-libertà). Se la matrice è troppo mal condizionata (parametri fortemente
-correlati, al limite di un vincolo, o — per un solo parametro — localmente
-insensibile al modello in quel punto, es. un True Voigt il cui fit è
-scivolato quasi interamente su una delle due larghezze) l'errore è
-riportato come `NaN` per il/i solo/i parametro/i coinvolto/i, invece di un
-numero fuorviante, senza compromettere gli errori degli altri parametri.
+The **errors** ("+/-" columns) are standard estimates for nonlinear least
+squares: `Cov(theta) = sigma^2*(J^T J)^-1` with `sigma^2 = SSE/dof`, from
+`lsqcurvefit`'s Jacobian at the minimum. A parameter with **Fix** enabled
+has an error of exactly `0` (it is not estimated, and does not consume a
+degree of freedom). If the matrix is too ill-conditioned (parameters
+strongly correlated, at the edge of a bound, or — for a single parameter
+— locally insensitive to the model at that point, e.g. a True Voigt whose
+fit has drifted almost entirely onto one of its two widths) the error is
+reported as `NaN` for just the parameter(s) involved, instead of a
+misleading number, without affecting the other parameters' errors.
 
-### Pannello statistiche
+### Statistics panel
 
-Dopo ogni fit: numero di punti, numero di parametri, gradi di libertà,
-chi-quadro (SSE), chi-quadro ridotto, R², errore RMS, e — se è stato
-fittato un fondo — i suoi coefficienti.
+After each fit: number of points, number of parameters, degrees of
+freedom, chi-square (SSE), reduced chi-square, R-squared, RMS error, and
+— if a background was fitted — its coefficients.
 
-### Esportazione
+### Export
 
-- **Export results (CSV)...** — tabella dei risultati in CSV.
-- **Save fit figure...** — il grafico principale in PDF/PNG.
-- **Save data (.mat)...** — vedi sezione dedicata sotto.
+- **Export results (CSV)...** — the results table as CSV.
+- **Save fit figure...** — the main plot as PDF/PNG.
+- **Save data (.mat)...** — see the dedicated section below.
 
-## Salvataggio dati (.mat)
+## Saving data (.mat)
 
-Il file `.mat` salvato contiene:
+The saved `.mat` file contains:
 
-- **`data`** (struct di curve, ognuna con campi `x`/`y`):
-  - `data.raw` — sempre presente, spettro originale
-  - `data.backsub` — presente se hai sottratto un fondo in Preprocess
-  - `data.smoothed` — presente se hai applicato lo smoothing
-  - `data.fitted` — presente dopo un fit: i dati esattamente come usati dal
-    fit (include un'eventuale normalizzazione)
-  - `data.background` — presente se hai fittato un fondo polinomiale
-  - `data.peak1`, `data.peak2`, ... — curva di ogni singolo picco
-  - `data.fit` — curva totale (somma di tutto)
-- **`p1`, `p2`, ...** (una variabile per picco fittato): `I` (altezza),
-  `I_err`, `w` (posizione), `w_err`, `FWHM`, `FWHM_err`, `Shape`, `Area`, e
-  il parametro extra specifico della forma quando presente (`Lor` per
-  pseudo-Voigt, `q` per Fano, `m` per Pearson VII, `FWHM_L` per Voigt vera).
+- **`data`** (a struct of curves, each with `x`/`y` fields):
+  - `data.raw` — always present, the original spectrum
+  - `data.backsub` — present if a baseline was subtracted in Preprocess
+  - `data.smoothed` — present if smoothing was applied
+  - `data.fitted` — present after a fit: the data exactly as used by the
+    fit (includes any normalization)
+  - `data.background` — present if a polynomial background was fitted
+  - `data.peak1`, `data.peak2`, ... — each individual peak's curve
+  - `data.fit` — the total curve (sum of everything)
+- **`p1`, `p2`, ...** (one variable per fitted peak): `I` (height),
+  `I_err`, `w` (position), `w_err`, `FWHM`, `FWHM_err`, `Shape`, `Area`,
+  and the shape-specific extra parameter when present (`Lor` for
+  pseudo-Voigt, `q` for Fano, `m` for Pearson VII, `FWHM_L` for true
+  Voigt).
 
-Se non hai ancora eseguito un fit, viene salvato solo `data.raw` (ed
-eventualmente `data.backsub`/`data.smoothed`) — non è necessario fittare
-prima di salvare.
+If no fit has been run yet, only `data.raw` is saved (and, if applicable,
+`data.backsub`/`data.smoothed`) — fitting first is not required in order
+to save.
 
-## Dipendenze incluse
+## Included dependencies
 
-| File | Origine | Uso |
+| File | Origin | Use |
 |---|---|---|
-| `gausslor.m` | libreria personale (`mymatfunctions/`) | Lineshape Gauss-Lorentz, base per Gaussian/Lorentzian/Pseudo-Voigt |
-| `backcor.m` (+ `backcor_license.txt`) | V. Mazet | Metodo di sottrazione del fondo `backcor` |
-| `airPLS.m` | Zhang et al. (dominio pubblico) | Metodo di sottrazione del fondo `airPLS` |
-| `snip.m` | C.G. Ryan et al. 1988 (algoritmo pubblico, implementazione propria) | Metodo di sottrazione del fondo `SNIP` |
-| `apls.m` | P.J. Cadusch et al. 2013 (algoritmo pubblico, implementazione propria) | Metodo di sottrazione del fondo `APLS` |
-| `readdpt.m` | libreria personale (`myfileutil/`) | Lettura file `.dpt` |
+| `gausslor.m` | personal library (`mymatfunctions/`) | Gauss-Lorentz lineshape, the basis for Gaussian/Lorentzian/Pseudo-Voigt |
+| `backcor.m` (+ `backcor_license.txt`) | V. Mazet | `backcor` baseline-subtraction method |
+| `airPLS.m` | Zhang et al. (public domain) | `airPLS` baseline-subtraction method |
+| `snip.m` | C.G. Ryan et al. 1988 (public algorithm, original implementation) | `SNIP` baseline-subtraction method |
+| `apls.m` | P.J. Cadusch et al. 2013 (public algorithm, original implementation) | `APLS` baseline-subtraction method |
+| `readdpt.m` | personal library (`myfileutil/`) | Reading `.dpt` files |
 
-Riferimenti bibliografici completi per i metodi di sottrazione del fondo
-in [`REFERENCES.txt`](REFERENCES.txt).
+Full bibliographic references for the baseline-subtraction methods are in
+[`REFERENCES.txt`](REFERENCES.txt).
 
-## Limiti noti
+## Known limitations
 
-- I fit sono minimi quadrati non pesati: ogni punto ha lo stesso peso, non
-  c'è propagazione di un'incertezza di misura per punto.
-- Fano e Pearson VII, avendo code molto pesanti a `q`/`m` estremi, possono
-  in teoria convergere verso soluzioni degeneri se i limiti sono troppo
-  larghi — il limite minimo di FWHM (legato alla spaziatura dei dati) mitiga
-  il caso più comune, ma un controllo visivo del risultato resta
-  raccomandato.
-- Se imposti un limite Min > Max per un parametro, il fit non segnala
-  errore ma restituisce il valore iniziale invariato, con gli errori
-  riportati come `NaN`.
+- Fits are unweighted least squares: every point has the same weight,
+  there is no per-point measurement-uncertainty propagation.
+- Fano and Pearson VII, having very heavy tails at extreme `q`/`m`, can in
+  theory converge to degenerate solutions if the bounds are too wide —
+  the minimum FWHM bound (tied to the data spacing) mitigates the most
+  common case, but a visual check of the result is still recommended.
+- If you set a Min > Max bound for a parameter, the fit does not report
+  an error but returns the initial value unchanged, with the errors
+  reported as `NaN`.
