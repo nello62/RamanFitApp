@@ -201,6 +201,14 @@ point spacing and the whole spectrum width (prevents a peak from
 collapsing onto a single noisy point), Center within the data range (or
 the analysis range, if set).
 
+If a peak's initial height guess comes out non-positive (e.g. clicked in
+a spot where baseline subtraction left slightly negative noise), it is
+nudged to a small positive value instead of being clamped exactly to the
+Height >= 0 bound: starting exactly at Height = 0 leaves every other
+parameter's sensitivity to the fit at zero too (every shape here is a
+plain height-times-lineshape), so the optimizer would otherwise get stuck
+and return the initial guess unchanged.
+
 ### Available peak shapes
 
 | Shape | Parameters | Notes |

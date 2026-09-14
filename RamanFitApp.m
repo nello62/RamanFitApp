@@ -1497,6 +1497,23 @@ end
                 hLB = heightGuess; hUB = heightGuess;
             else
                 hLB = resolveBound(d{k,12}, 0); hUB = resolveBound(d{k,13}, Inf);
+                if heightGuess <= hLB
+                    % A non-positive initial height guess (e.g. a peak
+                    % placed where baseline subtraction left slightly
+                    % negative noise) would otherwise get clamped exactly
+                    % onto the Height lower bound (0 by default) below --
+                    % and every lineshape here is a plain multiplicative
+                    % I*f(...), so ALL of that peak's OTHER parameters'
+                    % partial derivatives (FWHM, center) also vanish when
+                    % I=0, leaving LSQCURVEFIT with a completely flat
+                    % Jacobian and no way to move from the starting point
+                    % at all (confirmed by testing: the fit silently
+                    % returned the guess completely unchanged). Nudging
+                    % the guess to a small positive value instead keeps
+                    % it feasible while giving the optimizer something to
+                    % work with.
+                    heightGuess = max(abs(heightGuess), 0.01 * range(workingY));
+                end
             end
             if isFixedCell(d{k,7})
                 fLB = fwhmGuess; fUB = fwhmGuess;
