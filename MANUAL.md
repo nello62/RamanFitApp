@@ -30,9 +30,18 @@ RamanFitApp('spectrum.txt') % load the given file immediately
 |---|---|---|
 | `.txt`, `.csv`, `.dat` | Two columns, space/tab/comma delimited, with or without a header | Read with `readmatrix` |
 | `.dpt` | Two comma-separated columns, no header (typical OPUS/Bruker export) | Read with `readdpt.m` |
+| `.spc` | Binary Galactic/GRAMS spectrum format (also produced/supported by many instruments, including Jobin-Yvon/Horiba systems) | Read with `readspc.m` |
 
-In both cases the first column is the wavenumber (X axis), the second the
-intensity (Y axis). Data is automatically sorted by increasing X on load.
+For `.txt`/`.csv`/`.dat`/`.dpt` files, the first column is the wavenumber
+(X axis), the second the intensity (Y axis); for `.spc` files the axis
+and intensity are read directly from the file's own binary header/data
+blocks. Data is automatically sorted by increasing X on load.
+
+Note on `.spc`: some files written in the older ("version 77") SPC
+sub-format have been observed to come back with implausible axis/
+intensity values (see `readspc.m`'s help). If a loaded `.spc` spectrum
+looks wrong, try re-exporting it in the newer SPC format, or as
+`.txt`/`.dpt` instead.
 
 ## Multiple spectra at once
 
@@ -292,6 +301,7 @@ to save.
 | `snip.m` | C.G. Ryan et al. 1988 (public algorithm, original implementation) | `SNIP` baseline-subtraction method |
 | `apls.m` | P.J. Cadusch et al. 2013 (public algorithm, original implementation) | `APLS` baseline-subtraction method |
 | `readdpt.m` | personal library (`myfileutil/`) | Reading `.dpt` files |
+| `readspc.m` (wraps `GSSpcRead.m` + `GSSpcReadStructure.m`, `GetSPCAxisTypes.m`, `GetTechniques.m`, `GSToolsAbout.m`, `LocateItem.m`, `trimstr.m`, `trimleft.m`, `trimright.m`) | K. De Gussem, GSTools (GPLv3/BSD dual license, from `prog/GSTools/`) | Reading `.spc` files |
 
 Full bibliographic references for the baseline-subtraction methods are in
 [`REFERENCES.txt`](REFERENCES.txt).

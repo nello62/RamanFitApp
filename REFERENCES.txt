@@ -1,8 +1,9 @@
-RamanFitApp -- References for the baseline-correction methods
-================================================================
+RamanFitApp -- References
+==========================
 
-Each baseline method in the "Preprocess" tab is a published algorithm.
-The .m file implementing it is noted for each.
+Each baseline-correction method in the "Preprocess" tab, and the .spc
+file reader, are based on published algorithms / third-party libraries.
+The .m file implementing/wrapping each is noted below.
 
 
 backcor  (backcor.m)
@@ -92,3 +93,29 @@ avoid a Statistics and Machine Learning Toolbox dependency).
 
 Note: the original PDF of this paper is not included in this repository
 (Wiley copyright) -- see the DOI above.
+
+
+.spc file format  (readspc.m, wraps GSSpcRead.m and its GSTools helpers)
+-------------------------------------------------------------------------
+Reads the Galactic Industries / Thermo GRAMS ".spc" binary spectrum
+format, also produced or supported by many spectrometers, including
+Jobin-Yvon/Horiba systems.
+
+  Galactic Industries Corp.,
+  "SPC File Format specification" (gspc_udf.pdf),
+  freely available, e.g. via https://ftirsearch.com/features/converters/SPCFileFormat.htm
+
+Implementation: GSTools (GSSpcRead.m, GSSpcReadStructure.m,
+GetSPCAxisTypes.m, GetTechniques.m, GSToolsAbout.m, LocateItem.m,
+trimstr.m, trimleft.m, trimright.m) by Kris De Gussem, Raman Spectroscopy
+Research Group, Department of Analytical Chemistry, Ghent University
+(2004-2009), dual-licensed GPLv3 / BSD (full license text embedded in
+each file's own header). Copied here from the local `prog/GSTools/`
+toolbox. RamanFitApp's own `readspc.m` is a thin wrapper around
+GSSpcRead, original to this project.
+
+Known limitation: some files written in the older ("version 77") SPC
+sub-format have been observed, during integration testing, to produce
+implausible axis/intensity values -- not something specific to this
+wrapper; re-exporting the spectrum in the newer SPC format (or as
+.txt/.dpt) avoids it.

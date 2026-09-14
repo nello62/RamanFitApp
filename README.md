@@ -12,8 +12,8 @@ results.
 - MATLAB with **Optimization Toolbox** (`lsqcurvefit`, the fit engine)
 - **Signal Processing Toolbox** (`sgolayfilt`, Savitzky-Golay smoothing)
 - No dependencies outside MATLAB: every helper function
-  (`gausslor.m`, `backcor.m`, `airPLS.m`, `snip.m`, `readdpt.m`) ships in
-  this same folder.
+  (`gausslor.m`, `backcor.m`, `airPLS.m`, `snip.m`, `apls.m`, `readdpt.m`,
+  `readspc.m`) ships in this same folder.
 
 ## Quick start
 
@@ -24,7 +24,9 @@ RamanFitApp('spectrum.txt') % load a file immediately
 
 ## Features
 
-- Baseline subtraction: **backcor**, **airPLS**, or **SNIP**.
+- Reads `.txt`/`.csv`/`.dat` (plain columns), `.dpt` (OPUS/Bruker), and
+  `.spc` (Galactic/GRAMS binary, also used by Jobin-Yvon/Horiba systems).
+- Baseline subtraction: **backcor**, **airPLS**, **SNIP**, or **APLS**.
 - Savitzky-Golay smoothing and normalization (max=1 / area=1).
 - Peak shapes: Gaussian, Lorentzian, Pseudo-Voigt, Fano, Pearson VII,
   True Voigt — mixable per fit, each with optional per-parameter Fix and

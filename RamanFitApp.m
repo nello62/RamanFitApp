@@ -420,7 +420,7 @@ end
 
 % -------------------------------------------------------------------------
     function onLoadSpectrum()
-        [f, p] = pickOpenFile({'*.txt;*.csv;*.dat;*.dpt','Text/CSV/DPT spectra (*.txt,*.csv,*.dat,*.dpt)'; '*.*','All files'}, ...
+        [f, p] = pickOpenFile({'*.txt;*.csv;*.dat;*.dpt;*.spc','Text/CSV/DPT/SPC spectra (*.txt,*.csv,*.dat,*.dpt,*.spc)'; '*.*','All files'}, ...
             'Select a Raman spectrum');
         if isequal(f, 0)
             return
@@ -449,6 +449,11 @@ end
             % header -- a different format from the whitespace-delimited
             % files READMATRIX handles below.
             [x, y] = readdpt(f);
+            data = [x(:), y(:)];
+        elseif strcmpi(ext, '.spc')
+            % READSPC wraps the (third-party) GSSpcRead to parse the
+            % binary Galactic/GRAMS .spc format -- see REFERENCES.txt.
+            [x, y] = readspc(f);
             data = [x(:), y(:)];
         else
             data = readmatrix(f);
