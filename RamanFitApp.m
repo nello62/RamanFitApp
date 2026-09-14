@@ -917,7 +917,14 @@ end
         xClick = evt.IntersectionPoint(1);
         [~, nearIdx] = min(abs(rawX - xClick));
         heightGuess = workingY(nearIdx);
-        fwhmGuess = range(rawX) * 0.01;
+        % A reasonable default width right away, rather than the old 1%-
+        % of-the-whole-spectrum guess (often a sliver too narrow to even
+        % see): 30 cm^-1 is a typical Raman peak width, but scaled down
+        % for a narrow/zoomed view so the initial guess never dwarfs what
+        % is actually on screen, and floored at the fit's own minimum
+        % (twice the data point spacing) so it's never degenerately thin.
+        minFWHM = max(2 * median(diff(rawX)), eps);
+        fwhmGuess = max(min(30, diff(ax.XLim) * 0.1), minFWHM);
 
         d = peaksTable.Data;
         d(end+1, :) = {'Gaussian', xClick, false, [], [], fwhmGuess, false, [], [], heightGuess, false, [], []};
@@ -927,6 +934,7 @@ end
         pickArmed = false;
         addPeakBtn.Text = 'Add peak';
         redrawPeakMarkers();
+        redrawPeakComponentPreviews();
         statusLabel.Text = sprintf('Peak added at %.1f cm^{-1}.', xClick);
     end
 
