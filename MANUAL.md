@@ -56,15 +56,27 @@ statistics, and, if a fit had been run, the total fit curve (and any
 fitted background) on the plot.
 
 **Copy peaks to other spectra** (Peaks tab, enabled once 2+ spectra are
-loaded) copies the active spectrum's current peaks and Background setting
-into every other loaded spectrum, ready to be fitted with the same model
-— useful when the same set of bands is expected across a series of
-related spectra. Any fit a target spectrum previously had is cleared
-(it belonged to a different set of peaks), so it's ready for a clean
-Fit. Note that absolute Center/FWHM/Height values are copied as-is: if
-spectra have a slight calibration shift between them, the copied peak
-positions may need a small manual adjustment (e.g. by dragging their
-markers) before fitting.
+loaded) copies the active spectrum's current peaks, Background setting,
+and analysis range into every other loaded spectrum, ready to be fitted
+with the same model — useful when the same set of bands is expected
+across a series of related spectra. The analysis range is clamped to
+each target spectrum's own data extent (falling back to its whole
+spectrum if the copied range doesn't overlap it at all). Any fit a
+target spectrum previously had is cleared (it belonged to a different
+set of peaks), so it's ready for a clean Fit. Note that absolute
+Center/FWHM/Height values are copied as-is: if spectra have a slight
+calibration shift between them, the copied peak positions may need a
+small manual adjustment (e.g. by dragging their markers) before fitting.
+
+**Fit all spectra** (Peaks tab, next to Copy peaks, same enable
+condition) runs Fit on every loaded spectrum that currently has peaks,
+one after another, then returns to whichever spectrum was active before
+the button was pressed. Spectra with no peaks are skipped; a fit error on
+one spectrum does not stop the others from being attempted. The status
+bar reports a summary (fitted / skipped / failed) when done. Typical
+workflow: set up and fit one spectrum, use **Copy peaks to other
+spectra**, then **Fit all spectra** to apply the same model to the rest
+of the series.
 
 ## Window layout
 

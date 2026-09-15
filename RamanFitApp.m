@@ -305,9 +305,12 @@ addPeakBtn = uibutton(tabPeaks, 'push', 'Position', [5 498 sidebarW-30 28], ...
 showPeakLabelsCheck = uicheckbox(tabPeaks, 'Position', [5 466 sidebarW-30 22], ...
     'Text', 'Show position/FWHM values on plot', 'Value', true, ...
     'ValueChangedFcn', @(s,e) onTogglePeakLabels());
-copyPeaksBtn = uibutton(tabPeaks, 'push', 'Position', [5 428 sidebarW-30 28], ...
+copyPeaksBtn = uibutton(tabPeaks, 'push', 'Position', [5 428 (sidebarW-40)/2 28], ...
     'Text', 'Copy peaks to other spectra', 'Enable', 'off', ...
     'ButtonPushedFcn', @(s,e) onCopyPeaksToOthers());
+fitAllBtn = uibutton(tabPeaks, 'push', 'Position', [15+(sidebarW-40)/2 428 (sidebarW-40)/2 28], ...
+    'Text', 'Fit all spectra', 'Enable', 'off', ...
+    'ButtonPushedFcn', @(s,e) onFitAllSpectra());
 peaksTable = uitable(tabPeaks, 'Position', [5 170 sidebarW-30 248], ...
     'ColumnName', {'Shape','Center','Fix','C.Min','C.Max','FWHM','Fix','F.Min','F.Max','Height','Fix','H.Min','H.Max'}, ...
     'ColumnFormat', {{'Gaussian','Lorentzian','Pseudo-Voigt','Fano','Pearson VII','True Voigt'}, ...
@@ -689,23 +692,27 @@ end
         spectrumDD.Value = activeSpectrumIdx;
         if numel(loadedSpectra) > 1
             copyPeaksBtn.Enable = 'on';
+            fitAllBtn.Enable = 'on';
         end
     end
 
 % -------------------------------------------------------------------------
     function onCopyPeaksToOthers()
-    % Copies the active spectrum's current peaks (+ Background choice)
-    % into every OTHER loaded spectrum's snapshot, so switching to any of
-    % them starts already set up for a Fit with the same model. Any fit
-    % that spectrum previously had is cleared -- it belonged to a
-    % different set of peaks, so keeping it around risks a stale/
-    % mismatched overlay when switching to it (REDRAWTOTALFITOVERLAY and
-    % REDRAWRESIDUALSOVERLAY both key off LASTFITPEAKS being non-empty).
+    % Copies the active spectrum's current peaks, Background choice, and
+    % analysis range into every OTHER loaded spectrum's snapshot, so
+    % switching to any of them starts already set up for a Fit with the
+    % same model. Any fit that spectrum previously had is cleared -- it
+    % belonged to a different set of peaks, so keeping it around risks a
+    % stale/mismatched overlay when switching to it (REDRAWTOTALFITOVERLAY
+    % and REDRAWRESIDUALSOVERLAY both key off LASTFITPEAKS being
+    % non-empty).
         if numel(loadedSpectra) < 2
             return
         end
         srcPeaks = peaksTable.Data;
         srcBackground = backgroundDD.Value;
+        srcRangeXMin = rangeXMin;
+        srcRangeXMax = rangeXMax;
         nCopied = 0;
         for i = 1:numel(loadedSpectra)
             if i == activeSpectrumIdx
@@ -720,10 +727,83 @@ end
             snap.LastFitBgDegree = -1;
             snap.LastFitBgCoeffs = [];
             snap.LastFitWorkingY = [];
+            % The analysis range is copied as absolute wavenumber values
+            % and clamped to THIS spectrum's own data extent (mirroring
+            % APPLYRANGESELECTION's own clamping) -- if it doesn't
+            % overlap this spectrum's data at all, its range is left
+            % unset (whole spectrum) rather than risking an empty fit
+            % mask.
+            if isempty(srcRangeXMin)
+                snap.RangeXMin = [];
+                snap.RangeXMax = [];
+                snap.RangeMinFieldValue = min(snap.RawX);
+                snap.RangeMaxFieldValue = max(snap.RawX);
+            else
+                thisMin = max(srcRangeXMin, min(snap.RawX));
+                thisMax = min(srcRangeXMax, max(snap.RawX));
+                if thisMax > thisMin
+                    snap.RangeXMin = thisMin;
+                    snap.RangeXMax = thisMax;
+                    snap.RangeMinFieldValue = thisMin;
+                    snap.RangeMaxFieldValue = thisMax;
+                else
+                    snap.RangeXMin = [];
+                    snap.RangeXMax = [];
+                    snap.RangeMinFieldValue = min(snap.RawX);
+                    snap.RangeMaxFieldValue = max(snap.RawX);
+                end
+            end
             loadedSpectra(i).Snapshot = snap;
             nCopied = nCopied + 1;
         end
         statusLabel.Text = sprintf('Copied %d peak(s) to %d other spectrum/spectra.', size(srcPeaks,1), nCopied);
+    end
+
+% -------------------------------------------------------------------------
+    function onFitAllSpectra()
+    % Fits every loaded spectrum that currently has peaks, one after
+    % another, by switching the live state to each in turn (the same
+    % mechanism SPECTRUMDD itself uses) and calling the real ONFIT --
+    % reusing that exact, already-verified fitting logic rather than
+    % duplicating it. Spectra with no peaks are skipped (nothing to fit);
+    % individual fit errors are collected instead of popping up a modal
+    % dialog per spectrum (ONFIT's SILENT=true suppresses that).
+        if numel(loadedSpectra) < 2
+            return
+        end
+        originalIdx = activeSpectrumIdx;
+        nFitted = 0;
+        nSkipped = 0;
+        nFailed = 0;
+        for i = 1:numel(loadedSpectra)
+            if i ~= activeSpectrumIdx
+                loadedSpectra(activeSpectrumIdx).Snapshot = captureSpectrumSnapshot();
+                activeSpectrumIdx = i;
+                restoreSpectrumSnapshot(loadedSpectra(i).Snapshot);
+                spectrumDD.Value = i;
+            end
+            if isempty(peaksTable.Data)
+                nSkipped = nSkipped + 1;
+                continue
+            end
+            statusLabel.Text = sprintf('Fitting spectrum %d of %d (%s)...', ...
+                i, numel(loadedSpectra), loadedSpectra(i).FileName);
+            drawnow;
+            try
+                onFit(true);
+                nFitted = nFitted + 1;
+            catch
+                nFailed = nFailed + 1;
+            end
+        end
+        % Save whichever spectrum was processed last, then return to the
+        % one the user actually had open before starting.
+        loadedSpectra(activeSpectrumIdx).Snapshot = captureSpectrumSnapshot();
+        activeSpectrumIdx = originalIdx;
+        restoreSpectrumSnapshot(loadedSpectra(originalIdx).Snapshot);
+        spectrumDD.Value = originalIdx;
+        statusLabel.Text = sprintf('Fit all spectra: %d fitted, %d skipped (no peaks), %d failed.', ...
+            nFitted, nSkipped, nFailed);
     end
 
 % -------------------------------------------------------------------------
@@ -1448,11 +1528,20 @@ end
     end
 
 % -------------------------------------------------------------------------
-    function onFit()
+    function onFit(silent)
+    % SILENT (default false) is used by ONFITALLSPECTRA: suppresses the
+    % modal error dialog (batch-fitting several spectra shouldn't pop up
+    % an alert the user has to dismiss for each failure) and rethrows
+    % instead, so the caller can count/report failures itself.
+        if nargin < 1
+            silent = false;
+        end
         d = peaksTable.Data;
         nPeaks = size(d, 1);
         if nPeaks < 1
-            uialert(fig, 'Add at least one peak before fitting.', 'Nothing to fit');
+            if ~silent
+                uialert(fig, 'Add at least one peak before fitting.', 'Nothing to fit');
+            end
             return
         end
 
@@ -1589,6 +1678,9 @@ end
             fitBtn.Enable = 'on';
             fitBtn.Text = 'Fit';
             stopFitBtn.Visible = 'off';
+            if silent
+                rethrow(ME);
+            end
             uialert(fig, ME.message, 'Fit error');
             return
         end
