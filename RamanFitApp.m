@@ -157,57 +157,57 @@ linkaxes([ax, residualsAx], 'x');
 % consumed by the line's own hit-testing.
 ax.ButtonDownFcn = @(s,e) onAxesClicked(e);
 
-% Sidebar content block below is top-anchored: shifted up by the same
-% amount the window grew (winH-890) when the plot area was enlarged 50%,
-% so it sits flush near the panel's top instead of leaving a large empty
-% gap above "Load spectrum..." (any leftover space lands at the bottom of
-% the panel instead, which is the normal/expected place for it).
+% The tabgroup itself is top-anchored: shifted up by the same amount the
+% window grew (winH-890) when the plot area was enlarged 50%, so it sits
+% flush near the panel's top instead of leaving a large empty gap above
+% it (any leftover space lands at the bottom of the panel instead, which
+% is the normal/expected place for it).
 topShift = max(0, winH - sidebarMinH);  % floored: winH can now be capped below sidebarMinH on a short screen
 
-uibutton(sidebar, 'push', 'Position', [10 810+topShift sidebarW-20 30], ...
-    'Text', 'Load spectrum...', 'FontWeight', 'bold', ...
-    'ButtonPushedFcn', @(s,e) onLoadSpectrum());
-lblFile     = uilabel(sidebar, 'Position', [10 786+topShift sidebarW-20 18], 'Text', 'File: -');
-lblNPoints  = uilabel(sidebar, 'Position', [10 768+topShift sidebarW-20 18], 'Text', 'Points: -');
-
-% ---- Loaded spectra selector -----------------------------------------------
-% Lets more than one spectrum be loaded at once: "Load spectrum..." adds a
-% new entry instead of replacing the current one, and this dropdown
-% switches which one is active (raw/working data, peaks, results, and fit
-% stats are swapped in/out via captureSpectrumSnapshot/restoreSpectrumSnapshot).
-uilabel(sidebar, 'Position', [10 740+topShift 60 18], 'Text', 'Spectra:');
-spectrumDD = uidropdown(sidebar, 'Position', [75 738+topShift sidebarW-105 22], ...
-    'Items', {}, 'ValueChangedFcn', @(s,e) onSpectrumSelected());
-
-% ---- Analysis range (shared by baseline + fit) ---------------------------
-uilabel(sidebar, 'Position', [10 710+topShift sidebarW-20 18], 'Text', 'Analysis range (cm^{-1}):', 'FontWeight', 'bold');
-uilabel(sidebar, 'Position', [10 682+topShift 34 18], 'Text', 'Min:');
-rangeMinField = uieditfield(sidebar, 'numeric', 'Position', [46 680+topShift 120 22], ...
-    'ValueChangedFcn', @(s,e) onRangeFieldChanged());
-uilabel(sidebar, 'Position', [176 682+topShift 34 18], 'Text', 'Max:');
-rangeMaxField = uieditfield(sidebar, 'numeric', 'Position', [212 680+topShift 120 22], ...
-    'ValueChangedFcn', @(s,e) onRangeFieldChanged());
-selectRangeBtn = uibutton(sidebar, 'push', 'Position', [10 646+topShift (sidebarW-30)/2 28], ...
-    'Text', 'Select range (drag on plot)', 'ButtonPushedFcn', @(s,e) onSelectRangeBtn());
-uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 646+topShift (sidebarW-30)/2 28], ...
-    'Text', 'Clear range', 'ButtonPushedFcn', @(s,e) onClearRange());
-uibutton(sidebar, 'push', 'Position', [10 612+topShift (sidebarW-30)/2 28], ...
-    'Text', 'Zoom to range', 'ButtonPushedFcn', @(s,e) onZoomToRange());
-uibutton(sidebar, 'push', 'Position', [20+(sidebarW-30)/2 612+topShift (sidebarW-30)/2 28], ...
-    'Text', 'Show full spectrum', 'ButtonPushedFcn', @(s,e) onShowFullSpectrum());
 tg = uitabgroup(sidebar, 'Position', [5 10+topShift sidebarW-10 554]);
+tabFile       = uitab(tg, 'Title', 'File');
+tabRange      = uitab(tg, 'Title', 'Range');
 tabPreprocess = uitab(tg, 'Title', 'Preprocess');
 tabPeaks      = uitab(tg, 'Title', 'Peaks');
 tabResults    = uitab(tg, 'Title', 'Results');
 % UITAB exposes no FontSize/FontWeight for its own Title text, only these
-% two color properties -- used here to make the three tab labels stand
-% out more against the default plain tab strip.
-set([tabPreprocess, tabPeaks, tabResults], ...
+% two color properties -- used here to make the tab labels stand out more
+% against the default plain tab strip.
+set([tabFile, tabRange, tabPreprocess, tabPeaks, tabResults], ...
     'BackgroundColor', [0.85 0.92 1], 'ForegroundColor', [0 0.25 0.55]);
 
-% Created after the tabgroup so it renders on top of the tab-strip in
-% case its rendering encroaches above the tabgroup's declared Position.
-uibutton(sidebar, 'push', 'Position', [10 578+topShift sidebarW-20 28], ...
+% ---- File tab ---------------------------------------------------------
+uibutton(tabFile, 'push', 'Position', [10 490 sidebarW-30 30], ...
+    'Text', 'Load spectrum...', 'FontWeight', 'bold', ...
+    'ButtonPushedFcn', @(s,e) onLoadSpectrum());
+lblFile     = uilabel(tabFile, 'Position', [10 466 sidebarW-30 18], 'Text', 'File: -');
+lblNPoints  = uilabel(tabFile, 'Position', [10 448 sidebarW-30 18], 'Text', 'Points: -');
+
+% Lets more than one spectrum be loaded at once: "Load spectrum..." adds a
+% new entry instead of replacing the current one, and this dropdown
+% switches which one is active (raw/working data, peaks, results, and fit
+% stats are swapped in/out via captureSpectrumSnapshot/restoreSpectrumSnapshot).
+uilabel(tabFile, 'Position', [10 420 60 18], 'Text', 'Spectra:');
+spectrumDD = uidropdown(tabFile, 'Position', [75 418 sidebarW-115 22], ...
+    'Items', {}, 'ValueChangedFcn', @(s,e) onSpectrumSelected());
+
+% ---- Range tab (analysis range, shared by baseline + fit) -------------
+uilabel(tabRange, 'Position', [10 500 sidebarW-30 18], 'Text', 'Analysis range (cm^{-1}):', 'FontWeight', 'bold');
+uilabel(tabRange, 'Position', [10 472 34 18], 'Text', 'Min:');
+rangeMinField = uieditfield(tabRange, 'numeric', 'Position', [46 470 120 22], ...
+    'ValueChangedFcn', @(s,e) onRangeFieldChanged());
+uilabel(tabRange, 'Position', [176 472 34 18], 'Text', 'Max:');
+rangeMaxField = uieditfield(tabRange, 'numeric', 'Position', [212 470 120 22], ...
+    'ValueChangedFcn', @(s,e) onRangeFieldChanged());
+selectRangeBtn = uibutton(tabRange, 'push', 'Position', [10 436 (sidebarW-40)/2 28], ...
+    'Text', 'Select range (drag on plot)', 'ButtonPushedFcn', @(s,e) onSelectRangeBtn());
+uibutton(tabRange, 'push', 'Position', [20+(sidebarW-40)/2 436 (sidebarW-40)/2 28], ...
+    'Text', 'Clear range', 'ButtonPushedFcn', @(s,e) onClearRange());
+uibutton(tabRange, 'push', 'Position', [10 402 (sidebarW-40)/2 28], ...
+    'Text', 'Zoom to range', 'ButtonPushedFcn', @(s,e) onZoomToRange());
+uibutton(tabRange, 'push', 'Position', [20+(sidebarW-40)/2 402 (sidebarW-40)/2 28], ...
+    'Text', 'Show full spectrum', 'ButtonPushedFcn', @(s,e) onShowFullSpectrum());
+uibutton(tabRange, 'push', 'Position', [10 368 sidebarW-30 28], ...
     'Text', 'Reset Y axis', 'ButtonPushedFcn', @(s,e) onResetYAxis());
 
 % ---- Preprocess tab ------------------------------------------------------

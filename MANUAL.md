@@ -86,13 +86,16 @@ of the series.
   see [Peak markers on the plot](#peak-markers-on-the-plot)).
 - **Residuals plot** (below, smaller): `data - fit` after each fit, with
   its X axis linked to the main plot (zoom/pan stay in sync).
-- **Sidebar**: load button, analysis-range selector, **Reset Y axis**
-  button (rescales the Y axis to just the data within the selected
-  analysis range — or the whole spectrum if none is set — removing wasted
-  space left by, e.g., a baseline not yet subtracted), and three
-  highlighted tabs (Preprocess / Peaks / Results).
+- **Sidebar**: five highlighted tabs — **File**, **Range**, **Preprocess**,
+  **Peaks**, **Results**.
 
-## Analysis range
+## File tab
+
+**Load spectrum...**, the **File:**/**Points:** info labels, and the
+**Spectra:** selector (see [Multiple spectra at once](#multiple-spectra-at-once))
+live here.
+
+## Range tab
 
 The **analysis range** (cm⁻¹) restricts both the baseline calculation and
 the fit to the selected window only (if not set, the whole spectrum is
@@ -104,6 +107,9 @@ used).
 - **Zoom to range** / **Show full spectrum**: view-only zoom, does not
   change which data enters the fit.
 - **Clear range**: goes back to using the whole spectrum.
+- **Reset Y axis**: rescales the Y axis to just the data within the
+  selected analysis range — or the whole spectrum if none is set —
+  removing wasted space left by, e.g., a baseline not yet subtracted.
 
 ## Preprocess tab
 
