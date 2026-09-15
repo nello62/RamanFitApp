@@ -311,7 +311,12 @@ copyPeaksBtn = uibutton(tabPeaks, 'push', 'Position', [5 428 (sidebarW-40)/2 28]
 fitAllBtn = uibutton(tabPeaks, 'push', 'Position', [15+(sidebarW-40)/2 428 (sidebarW-40)/2 28], ...
     'Text', 'Fit all spectra', 'Enable', 'off', ...
     'ButtonPushedFcn', @(s,e) onFitAllSpectra());
-peaksTable = uitable(tabPeaks, 'Position', [5 170 sidebarW-30 248], ...
+uibutton(tabPeaks, 'push', 'Position', [5 396 370 28], ...
+    'Text', 'Auto-detect peaks', 'ButtonPushedFcn', @(s,e) onAutoDetectPeaks());
+uilabel(tabPeaks, 'Position', [385 400 55 18], 'Text', 'Prom %:');
+autoDetectPromField = uieditfield(tabPeaks, 'numeric', 'Position', [445 398 90 22], ...
+    'Value', 5, 'Limits', [0.1 100]);
+peaksTable = uitable(tabPeaks, 'Position', [5 170 sidebarW-30 220], ...
     'ColumnName', {'Shape','Center','Fix','C.Min','C.Max','FWHM','Fix','F.Min','F.Max','Height','Fix','H.Min','H.Max'}, ...
     'ColumnFormat', {{'Gaussian','Lorentzian','Pseudo-Voigt','Fano','Pearson VII','True Voigt'}, ...
         'numeric','logical','numeric','numeric','numeric','logical','numeric','numeric','numeric','logical','numeric','numeric'}, ...
@@ -1027,6 +1032,54 @@ end
         else
             addPeakBtn.Text = 'Add peak';
         end
+    end
+
+% -------------------------------------------------------------------------
+    function onAutoDetectPeaks()
+    % Adds one row per local maximum found by FINDPEAKS (Signal Processing
+    % Toolbox, already a hard requirement for SGOLAYFILT) over the
+    % current working spectrum, restricted to the analysis range. Called
+    % with X passed in (not just Y), so the returned locations/widths
+    % come back directly in wavenumber units -- WIDTHS in particular are
+    % FINDPEAKS' own half-prominence-height estimate, a much better FWHM
+    % guess than the fixed default used for a manually clicked peak.
+    % Found peaks are ADDED to whatever is already in the table (matching
+    % "Add peak"'s own behaviour), not a replacement -- run "Clear all
+    % peaks" first for a fresh start, or delete/re-run to adjust.
+        if isempty(rawX)
+            return
+        end
+        mask = rangeMask();
+        x = rawX(mask);
+        y = workingY(mask);
+        if numel(x) < 3
+            return
+        end
+        yRange = range(y);
+        if yRange <= 0
+            return
+        end
+        minProm = (autoDetectPromField.Value / 100) * yRange;
+        minFWHM = max(2 * median(diff(rawX)), eps);
+        minDist = minFWHM;
+        [pks, locs, widths] = findpeaks(y, x, ...
+            'MinPeakProminence', minProm, 'MinPeakDistance', minDist);
+        if isempty(pks)
+            uialert(fig, sprintf(['No peaks found above %.1f%% prominence in the ' ...
+                'current range. Try a lower value.'], autoDetectPromField.Value), ...
+                'Auto-detect peaks');
+            return
+        end
+        d = peaksTable.Data;
+        for k = 1:numel(pks)
+            fwhmGuess = max(widths(k), minFWHM);
+            d(end+1, :) = {'Gaussian', locs(k), false, [], [], fwhmGuess, false, [], [], pks(k), false, [], []}; %#ok<AGROW>
+        end
+        peaksTable.Data = d;
+        scroll(peaksTable, 'top');
+        redrawPeakMarkers();
+        redrawPeakComponentPreviews();
+        statusLabel.Text = sprintf('Auto-detected %d peak(s).', numel(pks));
     end
 
 % -------------------------------------------------------------------------

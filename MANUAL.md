@@ -179,6 +179,19 @@ Press **Add peak**, then click on the plot at the desired point: a
 Gaussian peak is created centered at the clicked point, with height equal
 to the data value there, and an initial estimated width.
 
+**Auto-detect peaks** finds local maxima in the current working spectrum
+(restricted to the analysis range, if set) using MATLAB's `findpeaks`,
+and adds one Gaussian peak per detection — with its FWHM guess taken
+from `findpeaks`' own half-prominence-height width estimate, usually
+better than the fixed default used for a manually clicked peak. The
+**Prom %** field sets the minimum prominence a local maximum must have,
+as a percentage of the working spectrum's own intensity range within the
+current view — lower it to catch smaller/weaker peaks, raise it to
+ignore noise. Detected peaks are added to whatever is already in the
+table (not a replacement); use **Clear all peaks** first for a fresh
+detection pass. If nothing clears the threshold, a message says so
+rather than silently doing nothing.
+
 ### Peak markers on the plot
 
 Each peak in the table is shown on the plot with two colored markers
