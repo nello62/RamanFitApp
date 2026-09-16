@@ -26,6 +26,7 @@ if nargin < 1
     filename = '';
 end
 filename = char(filename);
+thisFileDir = fileparts(mfilename('fullpath'));  % for locating sibling resource files (e.g. the logo image)
 
 % GAUSSLOR/AREAGL/BACKCOR/READDPT/AIRPLS are all copied into this same
 % folder (not left in their original sibling folders under prog/) so
@@ -137,8 +138,12 @@ sidebarW = 660;  % wide enough for the Peaks table's per-parameter Fix/Min/Max c
 % selected.
 lblCurrentFile = uilabel(fig, 'Position', [10 8 300 28], ...
     'Text', 'No file loaded.', 'FontColor', [0.35 0.35 0.35], 'FontWeight', 'bold');
-statusLabel = uilabel(fig, 'Position', [320 8 winW-330 28], ...
+statusLabel = uilabel(fig, 'Position', [320 8 winW-626 28], ...
     'Text', 'No spectrum loaded.', 'FontColor', [0.35 0.35 0.35]);
+uilabel(fig, 'Position', [winW-296 8 200 28], 'Text', 'sebastiano.trusso@cnr.it', ...
+    'HorizontalAlignment', 'right', 'FontColor', [0.35 0.35 0.35]);
+uiimage(fig, 'Position', [winW-86 4 76 32], ...
+    'ImageSource', fullfile(thisFileDir, 'IPCF_Logo_Acr.jpg'));
 
 sidebar = uipanel(fig, 'Position', [0 40 sidebarW winH-40], 'BorderType', 'line');
 
