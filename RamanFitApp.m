@@ -131,7 +131,13 @@ fig.CloseRequestFcn = @(src, evt) closeApp();
 % -------------------------------------------------------------------------
 sidebarW = 660;  % wide enough for the Peaks table's per-parameter Fix/Min/Max columns
 
-statusLabel = uilabel(fig, 'Position', [10 8 winW-20 28], ...
+% Split into two labels so the current filename stays visible from the
+% status strip regardless of which sidebar tab is active -- the File
+% tab's own "File:" label is only visible while that specific tab is
+% selected.
+lblCurrentFile = uilabel(fig, 'Position', [10 8 300 28], ...
+    'Text', 'No file loaded.', 'FontColor', [0.35 0.35 0.35], 'FontWeight', 'bold');
+statusLabel = uilabel(fig, 'Position', [320 8 winW-330 28], ...
     'Text', 'No spectrum loaded.', 'FontColor', [0.35 0.35 0.35]);
 
 sidebar = uipanel(fig, 'Position', [0 40 sidebarW winH-40], 'BorderType', 'line');
@@ -422,13 +428,24 @@ end
     end
 
 % -------------------------------------------------------------------------
-    function clearResiduals()
+    function clearAxesKeepLabels(theAx)
     % CLA alone does not fully clear a uiaxes (same issue documented and
     % fixed in G_gaussian_viewer.m) -- FINDALL recurses into every
     % descendant, with the axes itself filtered back out before deleting.
-        kids = findall(residualsAx);
-        kids(kids == residualsAx) = [];
+    % XLabel/YLabel/Title are also descendants of the axes (they're just
+    % Text objects), so a blanket FINDALL+DELETE wipes the axis labels
+    % along with the actual plotted data -- confirmed by testing: they
+    % never came back afterwards, since XLABEL/YLABEL are only called
+    % once at figure construction. Excluded here so every caller gets to
+    % keep its labels for free instead of needing to re-set them itself.
+        kids = findall(theAx);
+        kids(kids == theAx | kids == theAx.XLabel | kids == theAx.YLabel | kids == theAx.Title) = [];
         delete(kids);
+    end
+
+% -------------------------------------------------------------------------
+    function clearResiduals()
+        clearAxesKeepLabels(residualsAx);
     end
 
 % -------------------------------------------------------------------------
@@ -499,9 +516,7 @@ end
         rangeMaxField.Value = max(rawX);
         xi = linspace(min(rawX), max(rawX), 500)';
 
-        kids = findall(ax);
-        kids(kids == ax) = [];
-        delete(kids);
+        clearAxesKeepLabels(ax);
         peaksTable.Data = cell(0,13);
         scroll(peaksTable, 'top');
         removeStyle(peaksTable);
@@ -523,6 +538,7 @@ end
 
         [~, fname_] = fileparts(f);
         lblFile.Text = sprintf('File: %s', fname_);
+        lblCurrentFile.Text = lblFile.Text;
         lblNPoints.Text = sprintf('Points: %d', numel(rawX));
         statusLabel.Text = sprintf('Loaded %s (%d points).', fname_, numel(rawX));
 
@@ -583,9 +599,7 @@ end
         rangeMinField.Value = snap.RangeMinFieldValue;
         rangeMaxField.Value = snap.RangeMaxFieldValue;
 
-        kids = findall(ax);
-        kids(kids == ax) = [];
-        delete(kids);
+        clearAxesKeepLabels(ax);
 
         peaksTable.Data = snap.PeaksData;
         scroll(peaksTable, 'top');
@@ -611,6 +625,7 @@ end
         ax.YLim = snap.YLim;
 
         lblFile.Text = snap.FileLabelText;
+        lblCurrentFile.Text = lblFile.Text;
         lblNPoints.Text = snap.NPointsText;
     end
 
