@@ -349,9 +349,9 @@ stopFitBtn = uibutton(tabPeaks, 'push', 'Position', [15+(sidebarW-40)/2 218 (sid
 
 % ---- Results tab -----------------------------------------------------------
 resultsTable = uitable(tabResults, 'Position', [5 506 sidebarW-30 200], ...
-    'ColumnName', {'Peak','Shape','Center','+/-','FWHM','+/-','Height','+/-','Area'}, ...
-    'ColumnWidth', {40, 95, 85, 55, 60, 55, 60, 55, 90}, ...
-    'ColumnEditable', false(1,9), 'Data', cell(0,9));
+    'ColumnName', {'Peak','Shape','Center','+/-','FWHM','+/-','Height','+/-','Extra','+/-','Area'}, ...
+    'ColumnWidth', {40, 90, 70, 45, 55, 45, 55, 45, 75, 45, 65}, ...
+    'ColumnEditable', false(1,11), 'Data', cell(0,11));
 statsLabel = uilabel(tabResults, 'Position', [5 392 sidebarW-30 110], ...
     'Text', 'Fit statistics: -', 'VerticalAlignment', 'top');
 uibutton(tabResults, 'push', 'Position', [5 360 sidebarW-30 28], ...
@@ -520,7 +520,7 @@ end
         peaksTable.Data = cell(0,13);
         scroll(peaksTable, 'top');
         removeStyle(peaksTable);
-        resultsTable.Data = cell(0,9);
+        resultsTable.Data = cell(0,11);
         scroll(resultsTable, 'top');
         statsLabel.Text = 'Fit statistics: -';
         clearResiduals();
@@ -746,7 +746,7 @@ end
             snap = loadedSpectra(i).Snapshot;
             snap.PeaksData = srcPeaks;
             snap.BackgroundValue = srcBackground;
-            snap.ResultsData = cell(0,9);
+            snap.ResultsData = cell(0,11);
             snap.StatsText = 'Fit statistics: -';
             snap.LastFitPeaks = struct('Shape', {}, 'I', {}, 'I_err', {}, 'FWHM', {}, 'FWHM_err', {}, 'x0', {}, 'x0_err', {}, 'ExtraName', {}, 'ExtraValue', {});
             snap.LastFitBgDegree = -1;
@@ -1037,7 +1037,7 @@ end
         peaksTable.Data = cell(0,13);
         scroll(peaksTable, 'top');
         removeStyle(peaksTable);
-        resultsTable.Data = cell(0,9);
+        resultsTable.Data = cell(0,11);
         scroll(resultsTable, 'top');
         statsLabel.Text = 'Fit statistics: -';
         clearResiduals();
@@ -1846,12 +1846,12 @@ end
             end
         end
         peakParamErrors = paramErrors(1:end-nBgCoeffs);
-        [I_err, FWHM_err, x0_err, ~] = unpackTheta(peakParamErrors, shapes, extraSlot, nPeaks);
+        [I_err, FWHM_err, x0_err, Extra_err] = unpackTheta(peakParamErrors, shapes, extraSlot, nPeaks);
 
         clearTag('fitLine');
         clearTag('peakComponentLine');
         clearTag('backgroundFitLine');
-        resData = cell(nPeaks, 9);
+        resData = cell(nPeaks, 11);
         newPeaksData = d;  % preserve each peak's Min/Max bound overrides; only the fitted columns below are overwritten
         hold(ax, 'on');
         if nBgCoeffs > 0
@@ -1872,7 +1872,16 @@ end
             % which is an analytic formula specific to the Gauss-Lorentz
             % blend and doesn't apply to Fano/Pearson VII/True Voigt).
             area_ = trapz(xi, comp);
-            resData(k,:) = {k, shapes{k}, x0(k), x0_err(k), FWHM(k), FWHM_err(k), I(k), I_err(k), area_};
+            extraName_ = extraParamName(shapes{k});
+            if isempty(extraName_)
+                extraStr = '';
+                extraErrStr = [];
+            else
+                extraStr = sprintf('%s = %.4g', extraName_, Extra(k));
+                extraErrStr = Extra_err(k);
+            end
+            resData(k,:) = {k, shapes{k}, x0(k), x0_err(k), FWHM(k), FWHM_err(k), I(k), I_err(k), ...
+                extraStr, extraErrStr, area_};
             newPeaksData(k,[1 2 6 10]) = {shapes{k}, x0(k), FWHM(k), I(k)};
         end
         plot(ax, xi, totalCurve, 'r-', 'LineWidth', 1.5, 'PickableParts', 'none', 'Tag', 'fitLine');
@@ -2033,8 +2042,17 @@ end
         if isequal(f, 0)
             return
         end
-        varNames = {'Peak','Shape','Center','Center_err','FWHM','FWHM_err','Height','Height_err','Area'};
-        T = cell2table(resultsTable.Data, 'VariableNames', varNames);
+        varNames = {'Peak','Shape','Center','Center_err','FWHM','FWHM_err','Height','Height_err','Extra','Extra_err','Area'};
+        exportData = resultsTable.Data;
+        % Extra_err is [] (not '') for peaks without a shape-specific extra
+        % parameter, so CELL2TABLE doesn't see a uniform numeric column --
+        % normalised to NaN here purely for a clean CSV field.
+        for row = 1:size(exportData, 1)
+            if isempty(exportData{row, 10})
+                exportData{row, 10} = NaN;
+            end
+        end
+        T = cell2table(exportData, 'VariableNames', varNames);
         try
             writetable(T, fullfile(p, f));
             statusLabel.Text = sprintf('Results exported to %s.', f);

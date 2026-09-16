@@ -284,8 +284,11 @@ in a single click.
 ### Results table
 
 Columns: `Peak`, `Shape`, `Center` (+/- error), `FWHM` (+/- error),
-`Height` (+/- error), `Area` (computed by numerical integration, valid
-for any shape).
+`Height` (+/- error), `Extra` (+/- error), `Area` (computed by numerical
+integration, valid for any shape). `Extra` holds the shape-specific
+fourth parameter (`Lor` for Pseudo-Voigt, `q` for Fano, `m` for Pearson
+VII, `FWHM_L` for True Voigt) as `name = value`, and is blank for
+Gaussian/Lorentzian peaks, which don't have one.
 
 The **errors** ("+/-" columns) are standard estimates for nonlinear least
 squares: `Cov(theta) = sigma^2*(J^T J)^-1` with `sigma^2 = SSE/dof`, from
