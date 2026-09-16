@@ -49,11 +49,16 @@ looks wrong, try re-exporting it in the newer SPC format, or as
 ## Multiple spectra at once
 
 **Load spectrum...** adds a new spectrum instead of replacing the current
-one. The **Spectra:** dropdown in the sidebar lists every spectrum loaded
-in the session: selecting one switches to it, restoring exactly the state
-it was left in — raw/working data, analysis range, peaks, results table,
-statistics, and, if a fit had been run, the total fit curve (and any
-fitted background) on the plot.
+one, and its file picker allows selecting several files at once to load
+them all in one go. The **Spectra:** dropdown in the sidebar lists every
+spectrum loaded in the session: selecting one switches to it, restoring
+exactly the state it was left in — raw/working data, analysis range,
+peaks, results table, statistics, and, if a fit had been run, the total
+fit curve (and any fitted background) on the plot.
+
+**Remove selected spectrum** (File tab) removes the currently active
+spectrum from the session (enabled once 2+ are loaded — at least one must
+always remain).
 
 **Copy peaks to other spectra** (Peaks tab, enabled once 2+ spectra are
 loaded) copies the active spectrum's current peaks, Background setting,
@@ -61,10 +66,13 @@ and analysis range into every other loaded spectrum, ready to be fitted
 with the same model — useful when the same set of bands is expected
 across a series of related spectra. The analysis range is clamped to
 each target spectrum's own data extent (falling back to its whole
-spectrum if the copied range doesn't overlap it at all). Any fit a
-target spectrum previously had is cleared (it belonged to a different
-set of peaks), so it's ready for a clean Fit. Note that absolute
-Center/FWHM/Height values are copied as-is: if spectra have a slight
+spectrum if the copied range doesn't overlap it at all), and the plot's
+view is zoomed to it too (same as pressing "Zoom to range"), so switching
+to any of the other spectra shows the area the model was built from
+rather than the whole spectrum. Any fit a target spectrum previously had
+is cleared (it belonged to a different set of peaks), so it's ready for
+a clean Fit. Note that absolute Center/FWHM/Height values are copied
+as-is: if spectra have a slight
 calibration shift between them, the copied peak positions may need a
 small manual adjustment (e.g. by dragging their markers) before fitting.
 

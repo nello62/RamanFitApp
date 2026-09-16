@@ -206,6 +206,9 @@ lblNPoints  = uilabel(tabFile, 'Position', [10 644 sidebarW-30 18], 'Text', 'Poi
 uilabel(tabFile, 'Position', [10 616 60 18], 'Text', 'Spectra:');
 spectrumDD = uidropdown(tabFile, 'Position', [75 614 sidebarW-115 22], ...
     'Items', {}, 'ValueChangedFcn', @(s,e) onSpectrumSelected());
+removeSpectrumBtn = uibutton(tabFile, 'push', 'Position', [10 580 sidebarW-30 28], ...
+    'Text', 'Remove selected spectrum', 'Enable', 'off', ...
+    'ButtonPushedFcn', @(s,e) onRemoveSpectrum());
 
 % ---- Range tab (analysis range, shared by baseline + fit) -------------
 uilabel(tabRange, 'Position', [10 696 sidebarW-30 18], 'Text', 'Analysis range (cm^{-1}):', 'FontWeight', 'bold');
@@ -383,7 +386,7 @@ end
     end
 
 % -------------------------------------------------------------------------
-    function [f, p] = pickOpenFile(filterSpec, dlgTitle)
+    function [f, p] = pickOpenFile(filterSpec, dlgTitle, multiSelect)
     % Wraps UIGETFILE: on macOS, a uifigure's CEF-based window can end up
     % in front of the native file-picker dialog it just triggered, and
     % since the uifigure is blocked waiting for the (invisible, behind
@@ -391,6 +394,9 @@ end
     % Minimising the main window for the duration of the dialog avoids
     % this entirely (fix carried over from G_gaussian_viewer.m, where it
     % was found and debugged).
+        if nargin < 3
+            multiSelect = false;
+        end
         prevState = fig.WindowState;
         if strcmp(prevState, 'minimized')
             prevState = 'normal';
@@ -398,7 +404,11 @@ end
         fig.WindowState = 'minimized';
         drawnow;
         try
-            [f, p] = uigetfile(filterSpec, dlgTitle);
+            if multiSelect
+                [f, p] = uigetfile(filterSpec, dlgTitle, 'MultiSelect', 'on');
+            else
+                [f, p] = uigetfile(filterSpec, dlgTitle);
+            end
         catch ME
             fig.WindowState = prevState;
             drawnow;
@@ -456,14 +466,27 @@ end
 % -------------------------------------------------------------------------
     function onLoadSpectrum()
         [f, p] = pickOpenFile({'*.txt;*.csv;*.dat;*.dpt;*.spc;*.wdf','Text/CSV/DPT/SPC/WDF spectra (*.txt,*.csv,*.dat,*.dpt,*.spc,*.wdf)'; '*.*','All files'}, ...
-            'Select a Raman spectrum');
+            'Select one or more Raman spectra', true);
         if isequal(f, 0)
             return
         end
-        try
-            loadFile(fullfile(p, f));
-        catch ME
-            uialert(fig, ME.message, 'Load error');
+        % With MultiSelect on, UIGETFILE returns a cell array of names
+        % (even for a single selection); wrap a plain char back into one
+        % so the loop below handles both uniformly.
+        if ischar(f)
+            f = {f};
+        end
+        nFailed = 0;
+        for i = 1:numel(f)
+            try
+                loadFile(fullfile(p, f{i}));
+            catch ME
+                nFailed = nFailed + 1;
+                uialert(fig, ME.message, sprintf('Load error (%s)', f{i}));
+            end
+        end
+        if numel(f) > 1
+            statusLabel.Text = sprintf('Loaded %d of %d selected file(s).', numel(f)-nFailed, numel(f));
         end
     end
 
@@ -723,7 +746,36 @@ end
         if numel(loadedSpectra) > 1
             copyPeaksBtn.Enable = 'on';
             fitAllBtn.Enable = 'on';
+            removeSpectrumBtn.Enable = 'on';
         end
+    end
+
+% -------------------------------------------------------------------------
+    function onRemoveSpectrum()
+    % At least one spectrum must always remain loaded (the app has no
+    % "empty" state to fall back to), so this is a no-op with just one
+    % left -- REMOVESPECTRUMBTN is disabled in that case anyway.
+        if numel(loadedSpectra) <= 1
+            return
+        end
+        removeIdx = activeSpectrumIdx;
+        removedName = loadedSpectra(removeIdx).FileName;
+        loadedSpectra(removeIdx) = [];
+        % Land on whatever now occupies the removed slot (the next
+        % spectrum in the list), or the new last one if it was removed
+        % from the end.
+        newIdx = min(removeIdx, numel(loadedSpectra));
+        activeSpectrumIdx = newIdx;
+        spectrumDD.Items = {loadedSpectra.FileName};
+        spectrumDD.ItemsData = 1:numel(loadedSpectra);
+        spectrumDD.Value = newIdx;
+        restoreSpectrumSnapshot(loadedSpectra(newIdx).Snapshot);
+        if numel(loadedSpectra) <= 1
+            copyPeaksBtn.Enable = 'off';
+            fitAllBtn.Enable = 'off';
+            removeSpectrumBtn.Enable = 'off';
+        end
+        statusLabel.Text = sprintf('Removed %s.', removedName);
     end
 
 % -------------------------------------------------------------------------
@@ -768,6 +820,7 @@ end
                 snap.RangeXMax = [];
                 snap.RangeMinFieldValue = min(snap.RawX);
                 snap.RangeMaxFieldValue = max(snap.RawX);
+                snap.XLim = [min(snap.RawX), max(snap.RawX)];
             else
                 thisMin = max(srcRangeXMin, min(snap.RawX));
                 thisMax = min(srcRangeXMax, max(snap.RawX));
@@ -776,11 +829,17 @@ end
                     snap.RangeXMax = thisMax;
                     snap.RangeMinFieldValue = thisMin;
                     snap.RangeMaxFieldValue = thisMax;
+                    % Zoom the copied-to spectrum's view to the range too
+                    % (same as pressing "Zoom to range" there) -- switching
+                    % to it should show the area the model was actually
+                    % built from, not the whole spectrum.
+                    snap.XLim = [thisMin, thisMax];
                 else
                     snap.RangeXMin = [];
                     snap.RangeXMax = [];
                     snap.RangeMinFieldValue = min(snap.RawX);
                     snap.RangeMaxFieldValue = max(snap.RawX);
+                    snap.XLim = [min(snap.RawX), max(snap.RawX)];
                 end
             end
             loadedSpectra(i).Snapshot = snap;
