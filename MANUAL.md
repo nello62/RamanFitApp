@@ -164,6 +164,34 @@ used).
   corresponding continuous colormap, so with many peaks the colors get
   closer together rather than repeating outright.
 
+### X-axis calibration
+
+Corrects the wavenumber axis against one or more reference points (e.g. a
+crystalline silicon peak at 520.7 cm⁻¹, a neon lamp line, or any other
+band whose true position is known) — useful when the instrument's own
+calibration has drifted.
+
+- **Add point (click on plot)**: press the button, then click the plot at
+  the peak whose *measured* position you want to correct — a new row is
+  added to the table with that x-position; type the **Known** (true)
+  value into the same row. Rows can also be typed in directly without
+  clicking, and **Remove selected point** removes the selected row(s).
+- **Apply calibration**: with exactly one (Measured, Known) point, shifts
+  the whole axis by a constant offset; with two or more, fits a linear
+  map (least squares) from measured to known values and applies that
+  instead — so, unlike a plain shift, it can also correct a stretched or
+  compressed axis. Re-applying (e.g. after editing the points) always
+  recomputes from the original as-loaded axis rather than compounding
+  onto an already-corrected one.
+- **Reset calibration**: returns to the original, as-loaded axis.
+
+Both actions clear the current peaks, analysis range, and fit results,
+since those are recorded as absolute wavenumbers against the *old* axis
+and would otherwise silently no longer line up with the corrected one
+(unlike baseline/smoothing/despike, which only touch intensity values and
+stay valid). Calibration is independent per loaded spectrum, kept when
+switching between them or across Save/Load session.
+
 ## Preprocess tab
 
 ### Spike removal (cosmic rays)

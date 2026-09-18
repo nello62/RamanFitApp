@@ -39,6 +39,8 @@ RamanFitApp('spectrum.txt') % load a file immediately
   with a live curve preview and numeric labels.
 - Light/dark plot theme, and a choice of peak color palettes (default,
   colorblind-safe, parula, turbo, HSV).
+- X-axis calibration against one or more reference peaks (constant shift,
+  or a linear fit for two or more points).
 - Peak ratio calculator (e.g. D/G band ratio): pick any two fitted peaks
   and compare their Area or Height.
 - Per-parameter error estimates (linearized covariance from the fit's

@@ -38,6 +38,7 @@ thisFileDir = fileparts(mfilename('fullpath'));  % for locating sibling resource
 % no-classdef pattern used by G_gaussian_viewer.m).
 % -------------------------------------------------------------------------
 rawX = []; rawY = [];
+origRawX = [];  % RAWX as originally loaded, before any X-axis calibration -- kept so "Reset calibration" can undo it
 workingY = [];
 currentBaseline = [];
 currentBaselineMask = [];
@@ -45,6 +46,7 @@ currentSmoothed = [];
 currentDespiked = [];  % preview: workingY with detected cosmic-ray spikes replaced
 currentSpikeMask = [];  % logical, same length as rawX: which points were flagged as spikes
 pickArmed = false;
+calibPickArmed = false;
 xi = [];  % dense grid for smooth fit-curve/component plotting
 
 % Snapshots of WORKINGY taken right after each preprocessing step commits
@@ -261,6 +263,21 @@ uilabel(tabRange, 'Position', [10 462 90 18], 'Text', 'Peak colors:');
 peakPaletteDD = uidropdown(tabRange, 'Position', [105 460 sidebarW-135 22], ...
     'Items', {'Lines (default)','Colorblind-safe','Parula','Turbo','HSV'}, ...
     'Value', 'Lines (default)', 'ValueChangedFcn', @(s,e) onPeakPaletteChanged());
+
+uilabel(tabRange, 'Position', [10 414 sidebarW-30 18], 'Text', 'X-axis calibration:', 'FontWeight', 'bold');
+calibTable = uitable(tabRange, 'Position', [10 330 sidebarW-30 78], ...
+    'ColumnName', {'Measured','Known'}, 'ColumnWidth', {(sidebarW-30)/2, (sidebarW-30)/2}, ...
+    'ColumnEditable', [true true], 'Data', cell(0,2));
+addCalibPtBtn = uibutton(tabRange, 'push', 'Position', [10 296 (sidebarW-40)/2 28], ...
+    'Text', 'Add point (click on plot)', 'ButtonPushedFcn', @(s,e) onAddCalibPointBtn());
+uibutton(tabRange, 'push', 'Position', [20+(sidebarW-40)/2 296 (sidebarW-40)/2 28], ...
+    'Text', 'Remove selected point', 'ButtonPushedFcn', @(s,e) onRemoveCalibPoint());
+uibutton(tabRange, 'push', 'Position', [10 262 (sidebarW-40)/2 28], ...
+    'Text', 'Apply calibration', 'ButtonPushedFcn', @(s,e) onApplyCalibration());
+uibutton(tabRange, 'push', 'Position', [20+(sidebarW-40)/2 262 (sidebarW-40)/2 28], ...
+    'Text', 'Reset calibration', 'ButtonPushedFcn', @(s,e) onResetCalibration());
+calibStatusLabel = uilabel(tabRange, 'Position', [10 230 sidebarW-30 24], ...
+    'Text', 'Calibration: none', 'FontWeight', 'bold');
 
 % ---- Preprocess tab ------------------------------------------------------
 uilabel(tabPreprocess, 'Position', [5 706 sidebarW-30 18], ...
@@ -615,9 +632,12 @@ end
     % without re-deriving a filename or re-reading the file each time.
         [rawX, ord] = sort(x);
         rawX = rawX(:);
+        origRawX = rawX;
         rawY = y(ord);
         rawY = rawY(:);
         workingY = rawY;
+        calibTable.Data = cell(0,2);
+        calibStatusLabel.Text = 'Calibration: none';
         currentBaseline = [];
         currentBaselineMask = [];
         currentSmoothed = [];
@@ -673,6 +693,9 @@ end
     % per-spectrum state rather than a global preference.
         snap.RawX = rawX;
         snap.RawY = rawY;
+        snap.OrigRawX = origRawX;
+        snap.CalibData = calibTable.Data;
+        snap.CalibStatusText = calibStatusLabel.Text;
         snap.WorkingY = workingY;
         snap.CurrentBaseline = currentBaseline;
         snap.CurrentBaselineMask = currentBaselineMask;
@@ -705,6 +728,9 @@ end
     function restoreSpectrumSnapshot(snap)
         rawX = snap.RawX;
         rawY = snap.RawY;
+        origRawX = snap.OrigRawX;
+        calibTable.Data = snap.CalibData;
+        calibStatusLabel.Text = snap.CalibStatusText;
         workingY = snap.WorkingY;
         currentBaseline = snap.CurrentBaseline;
         currentBaselineMask = snap.CurrentBaselineMask;
@@ -897,6 +923,7 @@ end
         end
 
         rawX = []; rawY = [];
+        origRawX = [];
         workingY = [];
         currentBaseline = [];
         currentBaselineMask = [];
@@ -925,6 +952,8 @@ end
         scroll(resultsTable, 'top');
         updatePeakRatioControls();
         statsLabel.Text = 'Fit statistics: -';
+        calibTable.Data = cell(0,2);
+        calibStatusLabel.Text = 'Calibration: none';
 
         spectrumDD.Items = {};
         spectrumDD.ItemsData = [];
@@ -1551,6 +1580,16 @@ end
             fig.WindowButtonUpFcn = @(s,e) onRangeDragUp();
             return
         end
+        if calibPickArmed
+            xClick = evt.IntersectionPoint(1);
+            d = calibTable.Data;
+            d(end+1, :) = {xClick, []};
+            calibTable.Data = d;
+            calibPickArmed = false;
+            addCalibPtBtn.Text = 'Add point (click on plot)';
+            statusLabel.Text = sprintf('Calibration point measured at %.2f cm^{-1} -- enter its known value.', xClick);
+            return
+        end
         if ~pickArmed
             return
         end
@@ -1632,6 +1671,131 @@ end
         rangeMaxField.Value = max(rawX);
         clearTag('rangeLine');
         statusLabel.Text = 'Analysis range cleared (using full spectrum).';
+    end
+
+% -------------------------------------------------------------------------
+    function onAddCalibPointBtn()
+        calibPickArmed = ~calibPickArmed;
+        if calibPickArmed
+            addCalibPtBtn.Text = 'Click on plot... (click again to cancel)';
+        else
+            addCalibPtBtn.Text = 'Add point (click on plot)';
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onRemoveCalibPoint()
+        rows = calibTable.Selection;
+        if isempty(rows)
+            return
+        end
+        d = calibTable.Data;
+        d(unique(rows(:,1)), :) = [];
+        calibTable.Data = d;
+    end
+
+% -------------------------------------------------------------------------
+    function onApplyCalibration()
+    % Remaps RAWX from ORIGRAWX (the as-loaded axis, never itself
+    % modified) via a shift (one calibration point) or a linear fit (two
+    % or more), so re-applying with different/edited points is always
+    % exact rather than compounding a previous correction. PEAKS/RANGE
+    % are expressed in absolute wavenumbers against the OLD axis, not by
+    % array position (unlike WORKINGY/baseline/despike, which stay valid
+    % across this since they only depend on position) -- rather than
+    % silently leaving them wrong, they are cleared here, the same way
+    % ONRESETTORAW clears them when the underlying data changes.
+        if isempty(rawX)
+            return
+        end
+        d = calibTable.Data;
+        valid = false(size(d,1), 1);
+        for i = 1:size(d,1)
+            valid(i) = ~isempty(d{i,1}) && ~isempty(d{i,2}) && isfinite(d{i,1}) && isfinite(d{i,2});
+        end
+        d = d(valid, :);
+        if isempty(d)
+            uialert(fig, 'Enter at least one (measured, known) calibration point first.', 'Nothing to calibrate');
+            return
+        end
+        measured = cell2mat(d(:,1));
+        known = cell2mat(d(:,2));
+        if numel(measured) == 1
+            shiftAmt = known - measured;
+            applyMap = @(v) v + shiftAmt;
+            calibStatusLabel.Text = sprintf('Calibration: shift %+.3f cm^{-1}', shiftAmt);
+        else
+            p = polyfit(measured, known, 1);
+            applyMap = @(v) polyval(p, v);
+            calibStatusLabel.Text = sprintf('Calibration: linear (a=%.5f, b=%+.3f)', p(1), p(2));
+        end
+        rawX = applyMap(origRawX);
+        xi = linspace(min(rawX), max(rawX), 500)';
+
+        rangeXMin = [];
+        rangeXMax = [];
+        rangeMinField.Value = min(rawX);
+        rangeMaxField.Value = max(rawX);
+        peaksTable.Data = cell(0,13);
+        scroll(peaksTable, 'top');
+        removeStyle(peaksTable);
+        resultsTable.Data = cell(0,11);
+        scroll(resultsTable, 'top');
+        updatePeakRatioControls();
+        statsLabel.Text = 'Fit statistics: -';
+        lastFitPeaks = struct('Shape', {}, 'I', {}, 'I_err', {}, 'FWHM', {}, 'FWHM_err', {}, 'x0', {}, 'x0_err', {}, 'ExtraName', {}, 'ExtraValue', {});
+        lastFitBgDegree = -1;
+        lastFitBgCoeffs = [];
+        lastFitWorkingY = [];
+        clearResiduals();
+
+        clearAxesKeepLabels(ax);
+        plot(ax, rawX, rawY, 'Color', [0.75 0.75 0.75], 'LineWidth', 1, ...
+            'PickableParts', 'none', 'Tag', 'rawLine');
+        hold(ax, 'on');
+        redrawWorking();
+        hold(ax, 'off');
+        ax.XLim = [min(rawX), max(rawX)];
+
+        statusLabel.Text = 'X-axis calibration applied; peaks, range, and fit results were cleared (built against the old axis).';
+    end
+
+% -------------------------------------------------------------------------
+    function onResetCalibration()
+        if isempty(origRawX) || isequal(rawX, origRawX)
+            return
+        end
+        rawX = origRawX;
+        xi = linspace(min(rawX), max(rawX), 500)';
+        calibTable.Data = cell(0,2);
+        calibStatusLabel.Text = 'Calibration: none';
+
+        rangeXMin = [];
+        rangeXMax = [];
+        rangeMinField.Value = min(rawX);
+        rangeMaxField.Value = max(rawX);
+        peaksTable.Data = cell(0,13);
+        scroll(peaksTable, 'top');
+        removeStyle(peaksTable);
+        resultsTable.Data = cell(0,11);
+        scroll(resultsTable, 'top');
+        updatePeakRatioControls();
+        statsLabel.Text = 'Fit statistics: -';
+        lastFitPeaks = struct('Shape', {}, 'I', {}, 'I_err', {}, 'FWHM', {}, 'FWHM_err', {}, 'x0', {}, 'x0_err', {}, 'ExtraName', {}, 'ExtraValue', {});
+        lastFitBgDegree = -1;
+        lastFitBgCoeffs = [];
+        lastFitWorkingY = [];
+        clearResiduals();
+
+        clearAxesKeepLabels(ax);
+        plot(ax, rawX, rawY, 'Color', [0.75 0.75 0.75], 'LineWidth', 1, ...
+            'PickableParts', 'none', 'Tag', 'rawLine');
+        hold(ax, 'on');
+        redrawWorking();
+        hold(ax, 'off');
+        ax.XLim = [min(rawX), max(rawX)];
+
+        statusLabel.Text = 'X-axis calibration reset to the original axis; peaks, range, and fit results were cleared.';
     end
 
 % -------------------------------------------------------------------------
