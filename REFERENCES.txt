@@ -1,9 +1,27 @@
 RamanFitApp -- References
 ==========================
 
-Each baseline-correction method in the "Preprocess" tab, and the .spc
-file reader, are based on published algorithms / third-party libraries.
-The .m file implementing/wrapping each is noted below.
+Each baseline-correction method in the "Preprocess" tab, the spike-removal
+(despike) method, and the .spc/.wdf file readers, are based on published
+algorithms / third-party libraries. The .m file implementing/wrapping each
+is noted below.
+
+
+Spike removal (despike.m)
+--------------------------
+Whitaker-Hayes modified Z-score method for removing cosmic-ray spikes: a
+modified Z-score is computed on the first derivative of the spectrum
+(spikes appear as large point-to-point jumps, unlike genuine Raman peaks
+which are wide relative to one sample), flagged points are replaced by the
+median of their non-spike neighbors within a local window.
+
+  D. Whitaker, K. Hayes,
+  "A simple algorithm for despiking Raman spectra",
+  Chemometrics and Intelligent Laboratory Systems, 179, 82-84 (2018).
+  DOI: 10.1016/j.chemolab.2018.06.009
+
+Implementation: original, written for RamanFitApp from the published
+algorithm description.
 
 
 backcor  (backcor.m)

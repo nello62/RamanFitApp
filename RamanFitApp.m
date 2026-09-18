@@ -42,14 +42,17 @@ workingY = [];
 currentBaseline = [];
 currentBaselineMask = [];
 currentSmoothed = [];
+currentDespiked = [];  % preview: workingY with detected cosmic-ray spikes replaced
+currentSpikeMask = [];  % logical, same length as rawX: which points were flagged as spikes
 pickArmed = false;
 xi = [];  % dense grid for smooth fit-curve/component plotting
 
 % Snapshots of WORKINGY taken right after each preprocessing step commits
-% (baseline subtraction / smoothing), kept purely so "Save data (.mat)"
-% can export each pipeline stage separately -- WORKINGY itself is a
-% single evolving array with no history once a later step overwrites it.
+% (despike / baseline subtraction / smoothing), kept purely so "Save data
+% (.mat)" can export each pipeline stage separately -- WORKINGY itself is
+% a single evolving array with no history once a later step overwrites it.
 % Empty = that step was never applied this session.
+despikedY = [];
 backsubY = [];
 smoothedY = [];
 
@@ -230,90 +233,103 @@ uibutton(tabRange, 'push', 'Position', [10 564 sidebarW-30 28], ...
     'Text', 'Reset Y axis', 'ButtonPushedFcn', @(s,e) onResetYAxis());
 
 % ---- Preprocess tab ------------------------------------------------------
-uilabel(tabPreprocess, 'Position', [5 726 sidebarW-30 18], 'Text', 'Baseline', 'FontWeight', 'bold');
-uilabel(tabPreprocess, 'Position', [5 700 60 18], 'Text', 'Method:');
-baselineMethodDD = uidropdown(tabPreprocess, 'Position', [65 698 sidebarW-95 22], ...
+uilabel(tabPreprocess, 'Position', [5 706 sidebarW-30 18], ...
+    'Text', 'Spike removal (cosmic rays)', 'FontWeight', 'bold');
+uilabel(tabPreprocess, 'Position', [5 680 110 18], 'Text', 'Threshold (Z):');
+despikeThreshField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 678 sidebarW-170 22], ...
+    'Value', 7, 'Limits', [0 Inf]);
+uilabel(tabPreprocess, 'Position', [5 652 110 18], 'Text', 'Window:');
+despikeWindowField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 650 sidebarW-170 22], ...
+    'Value', 5, 'Limits', [3 Inf], 'RoundFractionalValues', 'on');
+uibutton(tabPreprocess, 'push', 'Position', [5 616 sidebarW-30 28], ...
+    'Text', 'Preview despike', 'ButtonPushedFcn', @(s,e) onPreviewDespike());
+uibutton(tabPreprocess, 'push', 'Position', [5 582 sidebarW-30 28], ...
+    'Text', 'Apply despike', 'ButtonPushedFcn', @(s,e) onApplyDespike());
+
+uilabel(tabPreprocess, 'Position', [5 542 sidebarW-30 18], 'Text', 'Baseline', 'FontWeight', 'bold');
+uilabel(tabPreprocess, 'Position', [5 516 60 18], 'Text', 'Method:');
+baselineMethodDD = uidropdown(tabPreprocess, 'Position', [65 514 sidebarW-95 22], ...
     'Items', {'backcor','airPLS','SNIP','APLS'}, 'Value', 'backcor', ...
     'ValueChangedFcn', @(s,e) onBaselineMethodChanged());
 
 % backcor parameters (visible when Method = backcor)
-lblOrder = uilabel(tabPreprocess, 'Position', [5 672 110 18], 'Text', 'Order:');
-baselineOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 670 sidebarW-170 22], ...
+lblOrder = uilabel(tabPreprocess, 'Position', [5 488 110 18], 'Text', 'Order:');
+baselineOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 486 sidebarW-170 22], ...
     'Value', 5, 'Limits', [0 Inf], 'RoundFractionalValues', 'on');
-lblThreshold = uilabel(tabPreprocess, 'Position', [5 644 110 18], 'Text', 'Threshold:');
-baselineThresholdField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 642 sidebarW-170 22], 'Value', 0.1);
-lblCostFn = uilabel(tabPreprocess, 'Position', [5 616 110 18], 'Text', 'Cost function:');
-baselineFctDD = uidropdown(tabPreprocess, 'Position', [140 614 sidebarW-170 22], ...
+lblThreshold = uilabel(tabPreprocess, 'Position', [5 460 110 18], 'Text', 'Threshold:');
+baselineThresholdField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 458 sidebarW-170 22], 'Value', 0.1);
+lblCostFn = uilabel(tabPreprocess, 'Position', [5 432 110 18], 'Text', 'Cost function:');
+baselineFctDD = uidropdown(tabPreprocess, 'Position', [140 430 sidebarW-170 22], ...
     'Items', {'sh','ah','stq','atq'}, 'Value', 'atq');
 backcorHandles = [lblOrder, baselineOrderField, lblThreshold, baselineThresholdField, lblCostFn, baselineFctDD];
 
 % airPLS parameters (visible when Method = airPLS), packed two-per-row
 % into the same vertical footprint as the backcor controls above.
-lblLambda = uilabel(tabPreprocess, 'Position', [5 672 55 18], 'Text', 'Lambda:');
-airplsLambdaField = uieditfield(tabPreprocess, 'numeric', 'Position', [62 670 110 22], 'Value', 1e7);
-lblDiffOrder = uilabel(tabPreprocess, 'Position', [180 672 60 18], 'Text', 'Diff ord:');
-airplsOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [237 670 sidebarW-30-232 22], ...
+lblLambda = uilabel(tabPreprocess, 'Position', [5 488 55 18], 'Text', 'Lambda:');
+airplsLambdaField = uieditfield(tabPreprocess, 'numeric', 'Position', [62 486 110 22], 'Value', 1e7);
+lblDiffOrder = uilabel(tabPreprocess, 'Position', [180 488 60 18], 'Text', 'Diff ord:');
+airplsOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [237 486 sidebarW-30-232 22], ...
     'Value', 2, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
-lblEdgeWt = uilabel(tabPreprocess, 'Position', [5 644 55 18], 'Text', 'Edge wt:');
-airplsWepField = uieditfield(tabPreprocess, 'numeric', 'Position', [62 642 110 22], ...
+lblEdgeWt = uilabel(tabPreprocess, 'Position', [5 460 55 18], 'Text', 'Edge wt:');
+airplsWepField = uieditfield(tabPreprocess, 'numeric', 'Position', [62 458 110 22], ...
     'Value', 0.1, 'Limits', [0 1]);
-lblAsym = uilabel(tabPreprocess, 'Position', [180 644 60 18], 'Text', 'p (asym):');
-airplsPField = uieditfield(tabPreprocess, 'numeric', 'Position', [237 642 sidebarW-30-232 22], ...
+lblAsym = uilabel(tabPreprocess, 'Position', [180 460 60 18], 'Text', 'p (asym):');
+airplsPField = uieditfield(tabPreprocess, 'numeric', 'Position', [237 458 sidebarW-30-232 22], ...
     'Value', 0.05, 'Limits', [0 1]);
-lblMaxIter = uilabel(tabPreprocess, 'Position', [5 616 70 18], 'Text', 'Max iter:');
-airplsIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [80 614 100 22], ...
+lblMaxIter = uilabel(tabPreprocess, 'Position', [5 432 70 18], 'Text', 'Max iter:');
+airplsIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [80 430 100 22], ...
     'Value', 20, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
 airplsHandles = [lblLambda, airplsLambdaField, lblDiffOrder, airplsOrderField, ...
     lblEdgeWt, airplsWepField, lblAsym, airplsPField, lblMaxIter, airplsIterField];
 set(airplsHandles, 'Visible', 'off');
 
 % SNIP parameters (visible when Method = SNIP), same footprint again.
-lblSnipIter = uilabel(tabPreprocess, 'Position', [5 672 110 18], 'Text', 'Iterations (M):');
-snipIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 670 sidebarW-170 22], ...
+lblSnipIter = uilabel(tabPreprocess, 'Position', [5 488 110 18], 'Text', 'Iterations (M):');
+snipIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 486 sidebarW-170 22], ...
     'Value', 40, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
-snipLLSCheck = uicheckbox(tabPreprocess, 'Position', [5 644 sidebarW-30 22], ...
+snipLLSCheck = uicheckbox(tabPreprocess, 'Position', [5 460 sidebarW-30 22], ...
     'Text', 'Use LLS transform', 'Value', true);
 snipHandles = [lblSnipIter, snipIterField, snipLLSCheck];
 set(snipHandles, 'Visible', 'off');
 
 % APLS parameters (visible when Method = APLS), same footprint again.
-lblAplsGamma = uilabel(tabPreprocess, 'Position', [5 672 60 18], 'Text', 'Gamma:');
-aplsGammaField = uieditfield(tabPreprocess, 'numeric', 'Position', [70 670 sidebarW-100 22], ...
+lblAplsGamma = uilabel(tabPreprocess, 'Position', [5 488 60 18], 'Text', 'Gamma:');
+aplsGammaField = uieditfield(tabPreprocess, 'numeric', 'Position', [70 486 sidebarW-100 22], ...
     'Value', 1e5, 'Limits', [0 Inf]);
-lblAplsOrder = uilabel(tabPreprocess, 'Position', [5 644 70 18], 'Text', 'Diff ord:');
-aplsOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [80 642 100 22], ...
+lblAplsOrder = uilabel(tabPreprocess, 'Position', [5 460 70 18], 'Text', 'Diff ord:');
+aplsOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [80 458 100 22], ...
     'Value', 2, 'Limits', [1 2], 'RoundFractionalValues', 'on');
-lblAplsIter = uilabel(tabPreprocess, 'Position', [190 644 70 18], 'Text', 'Max iter:');
-aplsIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [260 642 sidebarW-30-255 22], ...
+lblAplsIter = uilabel(tabPreprocess, 'Position', [190 460 70 18], 'Text', 'Max iter:');
+aplsIterField = uieditfield(tabPreprocess, 'numeric', 'Position', [260 458 sidebarW-30-255 22], ...
     'Value', 10, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
 aplsHandles = [lblAplsGamma, aplsGammaField, lblAplsOrder, aplsOrderField, lblAplsIter, aplsIterField];
 set(aplsHandles, 'Visible', 'off');
 
-uibutton(tabPreprocess, 'push', 'Position', [5 582 sidebarW-30 28], ...
+uibutton(tabPreprocess, 'push', 'Position', [5 398 sidebarW-30 28], ...
     'Text', 'Preview baseline', 'ButtonPushedFcn', @(s,e) onPreviewBaseline());
-uibutton(tabPreprocess, 'push', 'Position', [5 548 sidebarW-30 28], ...
+uibutton(tabPreprocess, 'push', 'Position', [5 364 sidebarW-30 28], ...
     'Text', 'Subtract baseline', 'ButtonPushedFcn', @(s,e) onSubtractBaseline());
 
-uilabel(tabPreprocess, 'Position', [5 508 sidebarW-30 18], 'Text', 'Smoothing (Savitzky-Golay)', 'FontWeight', 'bold');
-uilabel(tabPreprocess, 'Position', [5 482 110 18], 'Text', 'Window length:');
-smoothWinField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 480 sidebarW-170 22], ...
+uilabel(tabPreprocess, 'Position', [5 324 sidebarW-30 18], 'Text', 'Smoothing (Savitzky-Golay)', 'FontWeight', 'bold');
+uilabel(tabPreprocess, 'Position', [5 298 110 18], 'Text', 'Window length:');
+smoothWinField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 296 sidebarW-170 22], ...
     'Value', 11, 'Limits', [3 Inf], 'RoundFractionalValues', 'on');
-uilabel(tabPreprocess, 'Position', [5 454 110 18], 'Text', 'Poly order:');
-smoothOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 452 sidebarW-170 22], ...
+uilabel(tabPreprocess, 'Position', [5 270 110 18], 'Text', 'Poly order:');
+smoothOrderField = uieditfield(tabPreprocess, 'numeric', 'Position', [140 268 sidebarW-170 22], ...
     'Value', 3, 'Limits', [0 Inf], 'RoundFractionalValues', 'on');
-uibutton(tabPreprocess, 'push', 'Position', [5 420 sidebarW-30 28], ...
+uibutton(tabPreprocess, 'push', 'Position', [5 236 sidebarW-30 28], ...
     'Text', 'Preview smoothing', 'ButtonPushedFcn', @(s,e) onPreviewSmoothing());
-uibutton(tabPreprocess, 'push', 'Position', [5 386 sidebarW-30 28], ...
+uibutton(tabPreprocess, 'push', 'Position', [5 202 sidebarW-30 28], ...
     'Text', 'Apply smoothing', 'ButtonPushedFcn', @(s,e) onApplySmoothing());
 
-uilabel(tabPreprocess, 'Position', [5 358 sidebarW-30 18], 'Text', 'Normalization', 'FontWeight', 'bold');
-uilabel(tabPreprocess, 'Position', [5 332 60 18], 'Text', 'Method:');
-normalizeDD = uidropdown(tabPreprocess, 'Position', [65 330 sidebarW-95 22], ...
+uilabel(tabPreprocess, 'Position', [5 174 sidebarW-30 18], 'Text', 'Normalization', 'FontWeight', 'bold');
+uilabel(tabPreprocess, 'Position', [5 148 60 18], 'Text', 'Method:');
+normalizeDD = uidropdown(tabPreprocess, 'Position', [65 146 sidebarW-95 22], ...
     'Items', {'None','Max = 1','Area = 1'}, 'Value', 'None');
-uibutton(tabPreprocess, 'push', 'Position', [5 296 sidebarW-30 28], ...
+uibutton(tabPreprocess, 'push', 'Position', [5 112 sidebarW-30 28], ...
     'Text', 'Apply normalization', 'ButtonPushedFcn', @(s,e) onApplyNormalization());
 
-uibutton(tabPreprocess, 'push', 'Position', [5 254 sidebarW-30 30], ...
+uibutton(tabPreprocess, 'push', 'Position', [5 70 sidebarW-30 30], ...
     'Text', 'Reset to raw', 'ButtonPushedFcn', @(s,e) onResetToRaw());
 
 % ---- Peaks tab -------------------------------------------------------------
@@ -532,6 +548,9 @@ end
         currentBaseline = [];
         currentBaselineMask = [];
         currentSmoothed = [];
+        currentDespiked = [];
+        currentSpikeMask = [];
+        despikedY = [];
         backsubY = [];
         smoothedY = [];
         lastFitPeaks = struct('Shape', {}, 'I', {}, 'I_err', {}, 'FWHM', {}, 'FWHM_err', {}, 'x0', {}, 'x0_err', {}, 'ExtraName', {}, 'ExtraValue', {});
@@ -585,6 +604,9 @@ end
         snap.CurrentBaseline = currentBaseline;
         snap.CurrentBaselineMask = currentBaselineMask;
         snap.CurrentSmoothed = currentSmoothed;
+        snap.CurrentDespiked = currentDespiked;
+        snap.CurrentSpikeMask = currentSpikeMask;
+        snap.DespikedY = despikedY;
         snap.BacksubY = backsubY;
         snap.SmoothedY = smoothedY;
         snap.RangeXMin = rangeXMin;
@@ -614,6 +636,9 @@ end
         currentBaseline = snap.CurrentBaseline;
         currentBaselineMask = snap.CurrentBaselineMask;
         currentSmoothed = snap.CurrentSmoothed;
+        currentDespiked = snap.CurrentDespiked;
+        currentSpikeMask = snap.CurrentSpikeMask;
+        despikedY = snap.DespikedY;
         backsubY = snap.BacksubY;
         smoothedY = snap.SmoothedY;
         rangeXMin = snap.RangeXMin;
@@ -988,10 +1013,14 @@ end
         currentBaseline = [];
         currentBaselineMask = [];
         clearTag('baselineLine');
-        % A pending (uncommitted) smoothing preview was computed against
-        % the OLD workingY -- now stale, since workingY just changed.
+        % A pending (uncommitted) smoothing/despike preview was computed
+        % against the OLD workingY -- now stale, since workingY just changed.
         currentSmoothed = [];
         clearTag('smoothPreviewLine');
+        currentDespiked = [];
+        currentSpikeMask = [];
+        clearTag('despikePreviewLine');
+        clearTag('spikeMarker');
         backsubY = workingY;  % snapshot for "Save data (.mat)" -- see session-state comment above
         redrawWorking();
         statusLabel.Text = 'Baseline subtracted.';
@@ -1035,14 +1064,74 @@ end
         workingY = currentSmoothed;
         currentSmoothed = [];
         clearTag('smoothPreviewLine');
-        % A pending (uncommitted) baseline preview was computed against
-        % the OLD workingY -- now stale, since workingY just changed.
+        % A pending (uncommitted) baseline/despike preview was computed
+        % against the OLD workingY -- now stale, since workingY just changed.
         currentBaseline = [];
         currentBaselineMask = [];
         clearTag('baselineLine');
+        currentDespiked = [];
+        currentSpikeMask = [];
+        clearTag('despikePreviewLine');
+        clearTag('spikeMarker');
         smoothedY = workingY;  % snapshot for "Save data (.mat)" -- see session-state comment above
         redrawWorking();
         statusLabel.Text = 'Smoothing applied.';
+    end
+
+% -------------------------------------------------------------------------
+    function onPreviewDespike()
+        if isempty(rawX)
+            return
+        end
+        try
+            [currentDespiked, currentSpikeMask] = despike(workingY, ...
+                despikeThreshField.Value, round(despikeWindowField.Value));
+        catch ME
+            uialert(fig, ME.message, 'despike error');
+            return
+        end
+        clearTag('despikePreviewLine');
+        clearTag('spikeMarker');
+        hold(ax, 'on');
+        plot(ax, rawX, currentDespiked, 'Color', [0.85 0.1 0.1], 'LineStyle', '--', ...
+            'LineWidth', 1.2, 'PickableParts', 'none', 'Tag', 'despikePreviewLine');
+        if any(currentSpikeMask)
+            plot(ax, rawX(currentSpikeMask), workingY(currentSpikeMask), 'x', ...
+                'Color', [0.85 0.1 0.1], 'MarkerSize', 8, 'LineWidth', 1.5, ...
+                'PickableParts', 'none', 'Tag', 'spikeMarker');
+        end
+        hold(ax, 'off');
+        statusLabel.Text = sprintf('Despike computed: %d spike point(s) found (preview only, not yet applied).', ...
+            nnz(currentSpikeMask));
+    end
+
+% -------------------------------------------------------------------------
+    function onApplyDespike()
+        if isempty(rawX)
+            return
+        end
+        if isempty(currentDespiked)
+            onPreviewDespike();
+            if isempty(currentDespiked)
+                return
+            end
+        end
+        nSpikes = nnz(currentSpikeMask);
+        workingY = currentDespiked;
+        currentDespiked = [];
+        currentSpikeMask = [];
+        clearTag('despikePreviewLine');
+        clearTag('spikeMarker');
+        % A pending (uncommitted) baseline/smoothing preview was computed
+        % against the OLD workingY -- now stale, since workingY just changed.
+        currentBaseline = [];
+        currentBaselineMask = [];
+        clearTag('baselineLine');
+        currentSmoothed = [];
+        clearTag('smoothPreviewLine');
+        despikedY = workingY;  % snapshot for "Save data (.mat)" -- see session-state comment above
+        redrawWorking();
+        statusLabel.Text = sprintf('Despike applied: %d spike point(s) removed.', nSpikes);
     end
 
 % -------------------------------------------------------------------------
@@ -1073,6 +1162,10 @@ end
         clearTag('baselineLine');
         currentSmoothed = [];
         clearTag('smoothPreviewLine');
+        currentDespiked = [];
+        currentSpikeMask = [];
+        clearTag('despikePreviewLine');
+        clearTag('spikeMarker');
         redrawWorking();
         statusLabel.Text = sprintf('Normalized by %s (factor = %.4g).', normalizeDD.Value, factor);
     end
@@ -1084,7 +1177,11 @@ end
         end
         workingY = rawY;
         currentBaseline = [];
+        currentBaselineMask = [];
         currentSmoothed = [];
+        currentDespiked = [];
+        currentSpikeMask = [];
+        despikedY = [];
         backsubY = [];
         smoothedY = [];
         lastFitPeaks = struct('Shape', {}, 'I', {}, 'I_err', {}, 'FWHM', {}, 'FWHM_err', {}, 'x0', {}, 'x0_err', {}, 'ExtraName', {}, 'ExtraValue', {});
@@ -1093,6 +1190,8 @@ end
         lastFitWorkingY = [];
         clearTag('baselineLine');
         clearTag('smoothPreviewLine');
+        clearTag('despikePreviewLine');
+        clearTag('spikeMarker');
         clearTag('fitLine');
         clearTag('peakComponentLine');
         clearTag('backgroundFitLine');
@@ -2158,6 +2257,9 @@ end
 
         S = struct();
         S.data.raw = struct('x', rawX, 'y', rawY);
+        if ~isempty(despikedY)
+            S.data.despiked = struct('x', rawX, 'y', despikedY);
+        end
         if ~isempty(backsubY)
             S.data.backsub = struct('x', rawX, 'y', backsubY);
         end

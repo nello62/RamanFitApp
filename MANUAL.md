@@ -121,6 +121,28 @@ used).
 
 ## Preprocess tab
 
+### Spike removal (cosmic rays)
+
+Removes cosmic-ray spikes — single-sample (or few-sample) intensity jumps
+caused by the detector recording a cosmic-ray hit rather than Raman signal.
+Uses the Whitaker-Hayes modified Z-score method: a spike shows up as a large
+jump in the point-to-point derivative of the spectrum, ordinary Raman peaks
+are much wider than one sample so they barely register in the derivative by
+comparison, which is what lets the method tell spikes apart from real peaks.
+Parameters: `Threshold (Z)` (modified Z-score cutoff, default 7 — lower
+values flag more points as spikes), `Window` (half-width, in samples, of the
+neighborhood used both to flag points around a detected spike and to compute
+the replacement value, default 5).
+
+Workflow: **Preview despike** marks the detected spike points with a red `x`
+and draws the despiked curve as an overlay without modifying the data (the
+status bar reports how many points were flagged); **Apply despike** commits
+the replacement (each flagged point is replaced by the median of its
+non-spike neighbors) into the working spectrum.
+
+Note: like baseline/smoothing, confirming any one of despike, baseline, or
+smoothing automatically invalidates any unconfirmed preview of the others.
+
 ### Baseline (background subtraction)
 
 Four methods selectable from the **Method** menu:
@@ -182,8 +204,8 @@ scale.
 
 ### Reset to raw
 
-Returns the working spectrum to the original raw data, clearing baseline,
-smoothing, normalization, peaks, and fit results.
+Returns the working spectrum to the original raw data, clearing spike
+removal, baseline, smoothing, normalization, peaks, and fit results.
 
 ## Peaks tab
 
@@ -327,6 +349,7 @@ The saved `.mat` file contains:
 
 - **`data`** (a struct of curves, each with `x`/`y` fields):
   - `data.raw` — always present, the original spectrum
+  - `data.despiked` — present if spike removal was applied in Preprocess
   - `data.backsub` — present if a baseline was subtracted in Preprocess
   - `data.smoothed` — present if smoothing was applied
   - `data.fitted` — present after a fit: the data exactly as used by the
