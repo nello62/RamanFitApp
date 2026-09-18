@@ -371,6 +371,18 @@ After each fit: number of points, number of parameters, degrees of
 freedom, chi-square (SSE), reduced chi-square, R-squared, RMS error, and
 — if a background was fitted — its coefficients.
 
+### Peak ratio
+
+Picks two rows from the Results table (**A**/**B**, by peak number) and
+shows their intensity or area ratio (**Metric**: `Area` or `Height`) —
+e.g. the D/G band ratio commonly used to characterize carbon materials —
+plus each of A and B as a percentage of the total across *every* fitted
+peak (not just A and B), e.g. what fraction of the total integrated area
+a given band accounts for. Updates automatically after every fit, and
+whenever A, B, or the metric is changed; the previous A/B choice is kept
+across a re-fit as long as those peak numbers still exist. Reads `0` for
+a denominator/total as "undefined" rather than reporting `Inf`.
+
 ### Export
 
 - **Export results (CSV)...** — the results table (active spectrum only)

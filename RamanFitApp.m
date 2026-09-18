@@ -150,15 +150,28 @@ uiimage(fig, 'Position', [winW-86 4 76 32], ...
 
 sidebar = uipanel(fig, 'Position', [0 40 sidebarW winH-40], 'BorderType', 'line');
 
+% AX/RESIDUALSAX live in their own panel (rather than directly on FIG) so
+% the Dark plot theme (see APPLYPLOTTHEME) can darken the margin the axis
+% labels sit in too -- UIAXES.Color only fills the inner plotting
+% rectangle, not that margin, so without this wrapper panel the labels
+% would sit on FIG's own (unthemed) background and stay hard to read
+% against it in Dark mode. Position/BackgroundColor captured before any
+% theme is applied, so Light mode reproduces the original look exactly.
+plotPanel = uipanel(fig, 'Position', [sidebarW 40 winW-sidebarW winH-40], 'BorderType', 'none');
+plotPanelDefaultColor = plotPanel.BackgroundColor;
+
 % Main spectrum view on top, a shorter residuals strip below it, sharing
 % the x-axis (linked so zooming/panning one moves the other) -- residuals
-% are only populated after a Fit, empty otherwise.
-residualsAx = uiaxes(fig, 'Position', [sidebarW+10 45 winW-sidebarW-20 225]);
+% are only populated after a Fit, empty otherwise. Positions are relative
+% to PLOTPANEL now, hence the -40 vertical offset (PLOTPANEL's own origin
+% sits 40px up from FIG's) instead of the SIDEBARW+10 horizontal offset
+% needed when these were direct children of FIG.
+residualsAx = uiaxes(plotPanel, 'Position', [10 5 winW-sidebarW-20 225]);
 xlabel(residualsAx, 'Raman shift (cm^{-1})');
 ylabel(residualsAx, 'Residual');
 grid(residualsAx, 'on');
 
-ax = uiaxes(fig, 'Position', [sidebarW+10 285 winW-sidebarW-20 winH-335]);
+ax = uiaxes(plotPanel, 'Position', [10 245 winW-sidebarW-20 winH-335]);
 ax.Toolbar.Visible = 'on';
 xlabel(ax, 'Raman shift (cm^{-1})');
 ylabel(ax, 'Intensity (a.u.)');
@@ -404,6 +417,21 @@ uibutton(tabResults, 'push', 'Position', [5 292 sidebarW-30 28], ...
 uibutton(tabResults, 'push', 'Position', [5 258 sidebarW-30 28], ...
     'Text', 'Export all results...', 'ButtonPushedFcn', @(s,e) onExportAllResults());
 
+uilabel(tabResults, 'Position', [5 222 sidebarW-30 18], 'Text', 'Peak ratio:', 'FontWeight', 'bold');
+uilabel(tabResults, 'Position', [5 196 20 18], 'Text', 'A:');
+ratioADD = uidropdown(tabResults, 'Position', [25 194 60 22], ...
+    'Items', {}, 'ValueChangedFcn', @(s,e) updatePeakRatioResult());
+uilabel(tabResults, 'Position', [95 196 20 18], 'Text', 'B:');
+ratioBDD = uidropdown(tabResults, 'Position', [115 194 60 22], ...
+    'Items', {}, 'ValueChangedFcn', @(s,e) updatePeakRatioResult());
+uilabel(tabResults, 'Position', [185 196 55 18], 'Text', 'Metric:');
+ratioMetricDD = uidropdown(tabResults, 'Position', [240 194 120 22], ...
+    'Items', {'Area','Height'}, 'Value', 'Area', 'ValueChangedFcn', @(s,e) updatePeakRatioResult());
+ratioResultLabel = uilabel(tabResults, 'Position', [5 172 sidebarW-30 22], ...
+    'Text', 'Ratio: -', 'FontWeight', 'bold');
+ratioPercentLabel = uilabel(tabResults, 'Position', [5 148 sidebarW-30 22], ...
+    'Text', '% of total: -');
+
 set(findall(fig, 'Type', 'uibutton'), 'FontWeight', 'bold');
 
 % -------------------------------------------------------------------------
@@ -588,6 +616,7 @@ end
         removeStyle(peaksTable);
         resultsTable.Data = cell(0,11);
         scroll(resultsTable, 'top');
+        updatePeakRatioControls();
         statsLabel.Text = 'Fit statistics: -';
         clearResiduals();
 
@@ -678,6 +707,7 @@ end
         removeStyle(peaksTable);
         resultsTable.Data = snap.ResultsData;
         scroll(resultsTable, 'top');
+        updatePeakRatioControls();
         statsLabel.Text = snap.StatsText;
         clearResiduals();
 
@@ -868,6 +898,7 @@ end
         removeStyle(peaksTable);
         resultsTable.Data = cell(0,11);
         scroll(resultsTable, 'top');
+        updatePeakRatioControls();
         statsLabel.Text = 'Fit statistics: -';
 
         spectrumDD.Items = {};
@@ -1139,12 +1170,14 @@ end
     function applyPlotTheme()
         if strcmp(plotThemeDD.Value, 'Dark')
             bgColor = [0.13 0.13 0.16];
-            fgColor = [0.85 0.85 0.85];
-            gridColor = [0.6 0.6 0.6];
+            fgColor = [0.97 0.97 0.97];  % near-white: axis titles/tick labels need to read clearly against the dark background
+            gridColor = [0.45 0.45 0.45];  % dimmer than FGCOLOR so the grid doesn't compete with the labels for attention
+            plotPanel.BackgroundColor = bgColor;
         else
             bgColor = [1 1 1];
             fgColor = [0 0 0];
             gridColor = [0.15 0.15 0.15];
+            plotPanel.BackgroundColor = plotPanelDefaultColor;
         end
         for theAx = [ax, residualsAx]
             theAx.Color = bgColor;
@@ -1417,6 +1450,7 @@ end
         removeStyle(peaksTable);
         resultsTable.Data = cell(0,11);
         scroll(resultsTable, 'top');
+        updatePeakRatioControls();
         statsLabel.Text = 'Fit statistics: -';
         clearResiduals();
         statusLabel.Text = 'Reset to raw spectrum; peaks and fit cleared.';
@@ -2292,6 +2326,7 @@ end
         scroll(peaksTable, 'top');
         resultsTable.Data = resData;
         scroll(resultsTable, 'top');
+        updatePeakRatioControls();
         rmsLine = sprintf('RMS error = %.4g', rms);
         if nBgCoeffs > 0
             rmsLine = sprintf('%s   |   Background (%s): %s', rmsLine, backgroundDD.Value, mat2str(bgCoeffsFit, 4));
@@ -2525,6 +2560,80 @@ end
             statusLabel.Text = sprintf('Combined results for %d spectrum/a exported to %s.', numel(loadedSpectra), f);
         catch ME
             uialert(fig, ME.message, 'Export error');
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function updatePeakRatioControls()
+    % Repopulates the Peak ratio A/B selectors from the current Results
+    % table (called wherever RESULTSTABLE.DATA itself is replaced --
+    % after a fit, on spectrum switch, on reset/clear); previous A/B
+    % selections are kept if they're still valid row numbers, so
+    % re-fitting the same peaks doesn't reset the user's chosen pair.
+        n = size(resultsTable.Data, 1);
+        if n == 0
+            ratioADD.Items = {};
+            ratioADD.ItemsData = [];
+            ratioBDD.Items = {};
+            ratioBDD.ItemsData = [];
+            ratioResultLabel.Text = 'Ratio: -';
+            ratioPercentLabel.Text = '% of total: -';
+            return
+        end
+        prevA = ratioADD.Value;
+        prevB = ratioBDD.Value;
+        items = cellstr(string(1:n));
+        ratioADD.Items = items;
+        ratioADD.ItemsData = 1:n;
+        ratioBDD.Items = items;
+        ratioBDD.ItemsData = 1:n;
+        if isempty(prevA) || prevA > n
+            prevA = 1;
+        end
+        if isempty(prevB) || prevB > n || prevB == prevA
+            prevB = min(n, 2);
+        end
+        ratioADD.Value = prevA;
+        ratioBDD.Value = prevB;
+        updatePeakRatioResult();
+    end
+
+% -------------------------------------------------------------------------
+    function updatePeakRatioResult()
+        n = size(resultsTable.Data, 1);
+        if n < 2 || isempty(ratioADD.Value) || isempty(ratioBDD.Value)
+            if n == 1
+                ratioResultLabel.Text = 'Ratio: need at least 2 fitted peaks.';
+            else
+                ratioResultLabel.Text = 'Ratio: -';
+            end
+            ratioPercentLabel.Text = '% of total: -';
+            return
+        end
+        a = ratioADD.Value;
+        b = ratioBDD.Value;
+        rd = resultsTable.Data;
+        if strcmp(ratioMetricDD.Value, 'Height')
+            col = 7;
+        else
+            col = 11;
+        end
+        valA = rd{a, col};
+        valB = rd{b, col};
+        if isempty(valB) || valB == 0
+            ratioResultLabel.Text = sprintf('Ratio (peak %d / peak %d): undefined (denominator is zero).', a, b);
+        else
+            ratioResultLabel.Text = sprintf('Ratio (peak %d / peak %d), %s: %.4g', a, b, ratioMetricDD.Value, valA / valB);
+        end
+        % Share of the total across EVERY fitted peak, not just A and B --
+        % e.g. what fraction of the total integrated area peak A accounts
+        % for, the way a D/G-ratio-style analysis usually wants it framed.
+        total = sum(cell2mat(rd(:, col)));
+        if isempty(total) || total == 0
+            ratioPercentLabel.Text = '% of total: undefined (total is zero).';
+        else
+            ratioPercentLabel.Text = sprintf('%% of total %s: peak %d = %.1f%%, peak %d = %.1f%%', ...
+                ratioMetricDD.Value, a, 100 * valA / total, b, 100 * valB / total);
         end
     end
 
