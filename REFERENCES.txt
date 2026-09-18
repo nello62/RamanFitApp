@@ -1,6 +1,11 @@
 RamanFitApp -- References
 ==========================
 
+Development note: RamanFitApp.m was developed with the assistance of an
+AI coding tool (Claude, Anthropic), under the author's (Sebastiano Trusso)
+supervision and review.
+
+
 Each baseline-correction method in the "Preprocess" tab, the spike-removal
 (despike) method, and the .spc/.wdf file readers, are based on published
 algorithms / third-party libraries. The .m file implementing/wrapping each
