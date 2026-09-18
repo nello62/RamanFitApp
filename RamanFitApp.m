@@ -240,6 +240,15 @@ uibutton(tabRange, 'push', 'Position', [20+(sidebarW-40)/2 598 (sidebarW-40)/2 2
 uibutton(tabRange, 'push', 'Position', [10 564 sidebarW-30 28], ...
     'Text', 'Reset Y axis', 'ButtonPushedFcn', @(s,e) onResetYAxis());
 
+uilabel(tabRange, 'Position', [10 522 sidebarW-30 18], 'Text', 'Plot appearance:', 'FontWeight', 'bold');
+uilabel(tabRange, 'Position', [10 494 90 18], 'Text', 'Theme:');
+plotThemeDD = uidropdown(tabRange, 'Position', [105 492 sidebarW-135 22], ...
+    'Items', {'Light','Dark'}, 'Value', 'Light', 'ValueChangedFcn', @(s,e) applyPlotTheme());
+uilabel(tabRange, 'Position', [10 462 90 18], 'Text', 'Peak colors:');
+peakPaletteDD = uidropdown(tabRange, 'Position', [105 460 sidebarW-135 22], ...
+    'Items', {'Lines (default)','Colorblind-safe','Parula','Turbo','HSV'}, ...
+    'Value', 'Lines (default)', 'ValueChangedFcn', @(s,e) onPeakPaletteChanged());
+
 % ---- Preprocess tab ------------------------------------------------------
 uilabel(tabPreprocess, 'Position', [5 706 sidebarW-30 18], ...
     'Text', 'Spike removal (cosmic rays)', 'FontWeight', 'bold');
@@ -1092,6 +1101,63 @@ end
     end
 
 % -------------------------------------------------------------------------
+    function colors = getPeakColors(n)
+    % Per-peak marker/curve colors, drawn from whichever palette is
+    % selected in PEAKPALETTEDD -- kept as one shared source so every
+    % caller (peak markers, component-curve previews) always agrees on
+    % which color belongs to which peak row.
+        if n == 0
+            colors = zeros(0, 3);
+            return
+        end
+        switch peakPaletteDD.Value
+            case 'Colorblind-safe'
+                % Okabe & Ito (2008) 8-color qualitative palette, designed
+                % to stay distinguishable under the common forms of color
+                % vision deficiency; cycled if there are more than 8 peaks.
+                base = [230 159 0; 86 180 233; 0 158 115; 240 228 66; ...
+                    0 114 178; 213 94 0; 204 121 167; 0 0 0] / 255;
+                colors = base(mod(0:n-1, size(base,1)) + 1, :);
+            case 'Parula'
+                colors = parula(n);
+            case 'Turbo'
+                colors = turbo(n);
+            case 'HSV'
+                colors = hsv(n);
+            otherwise
+                colors = lines(n);
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onPeakPaletteChanged()
+        redrawPeakMarkers();
+        redrawPeakComponentPreviews();
+    end
+
+% -------------------------------------------------------------------------
+    function applyPlotTheme()
+        if strcmp(plotThemeDD.Value, 'Dark')
+            bgColor = [0.13 0.13 0.16];
+            fgColor = [0.85 0.85 0.85];
+            gridColor = [0.6 0.6 0.6];
+        else
+            bgColor = [1 1 1];
+            fgColor = [0 0 0];
+            gridColor = [0.15 0.15 0.15];
+        end
+        for theAx = [ax, residualsAx]
+            theAx.Color = bgColor;
+            theAx.XColor = fgColor;
+            theAx.YColor = fgColor;
+            theAx.GridColor = gridColor;
+            theAx.XLabel.Color = fgColor;
+            theAx.YLabel.Color = fgColor;
+            theAx.Title.Color = fgColor;
+        end
+    end
+
+% -------------------------------------------------------------------------
     function onBaselineMethodChanged()
         set(backcorHandles, 'Visible', 'off');
         set(airplsHandles, 'Visible', 'off');
@@ -1564,7 +1630,7 @@ end
         heights = cell2mat(d(:,10));
         fwhms = cell2mat(d(:,6));
         n = size(d, 1);
-        peakColors = lines(n);  % same per-row color scheme as the fitted component curves
+        peakColors = getPeakColors(n);  % same per-row color scheme as the fitted component curves
         % Label vertical offset scaled to the current Y view (not a fixed
         % pixel/data amount), so it stays legibly above the marker
         % regardless of the spectrum's own intensity scale.
@@ -1698,7 +1764,7 @@ end
             return
         end
         n = size(d, 1);
-        peakColors = lines(n);
+        peakColors = getPeakColors(n);
         % Shapes with an extra free parameter (Fano's q, Pearson VII's m,
         % True Voigt's FWHM_L) don't store a guess for it in the table at
         % all -- it only exists once a fit has actually run. Reuse the
@@ -2173,7 +2239,7 @@ end
         else
             totalCurve = zeros(size(xi));
         end
-        peakColors = lines(nPeaks);  % MATLAB's default axes ColorOrder, cycled if nPeaks > 7
+        peakColors = getPeakColors(nPeaks);
         for k = 1:nPeaks
             comp = peakModel(xi, shapes{k}, I(k), FWHM(k), x0(k), Extra(k));
             totalCurve = totalCurve + comp;

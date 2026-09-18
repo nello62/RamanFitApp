@@ -137,6 +137,22 @@ used).
   selected analysis range — or the whole spectrum if none is set —
   removing wasted space left by, e.g., a baseline not yet subtracted.
 
+### Plot appearance
+
+- **Theme**: `Light` (default, white background) or `Dark` (dark
+  background, light axis lines/labels/grid) for both the main plot and
+  the residuals strip. The plotted curves' own colors don't change —
+  they're already legible on either background.
+- **Peak colors**: the palette used for each peak's markers and dashed
+  component curve (see [Peak markers on the plot](#peak-markers-on-the-plot)).
+  `Lines (default)` is MATLAB's own qualitative color order (7 colors,
+  repeating for an 8th peak and beyond); `Colorblind-safe` is the 8-color
+  Okabe-Ito palette, chosen to stay distinguishable under the common forms
+  of color vision deficiency (also repeating past 8 peaks); `Parula`/
+  `Turbo`/`HSV` instead sample that many evenly-spaced colors from the
+  corresponding continuous colormap, so with many peaks the colors get
+  closer together rather than repeating outright.
+
 ## Preprocess tab
 
 ### Spike removal (cosmic rays)
