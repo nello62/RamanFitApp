@@ -38,9 +38,11 @@ RamanFitApp('spectrum.txt') % load a file immediately
 - Per-parameter error estimates (linearized covariance from the fit's
   Jacobian), live chi-square during the fit, and a Stop-fit button.
 - Multiple spectra can be loaded at once and switched between via the
-  "Spectra:" selector, each keeping its own peaks/results/fit state.
-- Export: CSV results table, PDF/PNG figure, and a `.mat` file with the
-  raw/processed data and every fitted peak's parameters (+ errors).
+  "Spectra:" selector, each keeping its own peaks/results/fit state;
+  "New session (clear all)" resets everything to start a fresh batch.
+- Export: results table as CSV (single spectrum, or combined as CSV/`.mat`
+  across every loaded spectrum), PDF/PNG figure, and a `.mat` file with
+  the raw/processed data and every fitted peak's parameters (+ errors).
 
 See [`MANUAL.md`](MANUAL.md) for the full user manual.
 

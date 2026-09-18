@@ -213,6 +213,10 @@ removeSpectrumBtn = uibutton(tabFile, 'push', 'Position', [10 580 sidebarW-30 28
     'Text', 'Remove selected spectrum', 'Enable', 'off', ...
     'ButtonPushedFcn', @(s,e) onRemoveSpectrum());
 
+uilabel(tabFile, 'Position', [10 544 sidebarW-30 18], 'Text', 'Session:', 'FontWeight', 'bold');
+uibutton(tabFile, 'push', 'Position', [10 510 sidebarW-30 28], ...
+    'Text', 'New session (clear all)', 'ButtonPushedFcn', @(s,e) onNewSession());
+
 % ---- Range tab (analysis range, shared by baseline + fit) -------------
 uilabel(tabRange, 'Position', [10 696 sidebarW-30 18], 'Text', 'Analysis range (cm^{-1}):', 'FontWeight', 'bold');
 uilabel(tabRange, 'Position', [10 668 34 18], 'Text', 'Min:');
@@ -384,6 +388,8 @@ uibutton(tabResults, 'push', 'Position', [5 326 sidebarW-30 28], ...
     'Text', 'Save fit figure...', 'ButtonPushedFcn', @(s,e) onSaveFigure());
 uibutton(tabResults, 'push', 'Position', [5 292 sidebarW-30 28], ...
     'Text', 'Save data (.mat)...', 'ButtonPushedFcn', @(s,e) onSaveMatFile());
+uibutton(tabResults, 'push', 'Position', [5 258 sidebarW-30 28], ...
+    'Text', 'Export all results...', 'ButtonPushedFcn', @(s,e) onExportAllResults());
 
 set(findall(fig, 'Type', 'uibutton'), 'FontWeight', 'bold');
 
@@ -801,6 +807,68 @@ end
             removeSpectrumBtn.Enable = 'off';
         end
         statusLabel.Text = sprintf('Removed %s.', removedName);
+    end
+
+% -------------------------------------------------------------------------
+    function onNewSession()
+    % Unlike ONRESETTORAW/ONREMOVESPECTRUM, which always leave at least one
+    % spectrum's raw data in place, this drops every loaded spectrum and
+    % returns the app to the same blank state it starts in before the
+    % first "Load spectrum..." -- confirmed first since it is the single
+    % most destructive action in the app (all unsaved fits, for every
+    % spectrum, are lost at once).
+        if isempty(rawX) && isempty(loadedSpectra)
+            return
+        end
+        answer = uiconfirm(fig, ...
+            'This clears every loaded spectrum, peak, and fit result. This cannot be undone. Continue?', ...
+            'Start new session', 'Options', {'Clear all', 'Cancel'}, ...
+            'DefaultOption', 2, 'CancelOption', 2, 'Icon', 'warning');
+        if ~strcmp(answer, 'Clear all')
+            return
+        end
+
+        rawX = []; rawY = [];
+        workingY = [];
+        currentBaseline = [];
+        currentBaselineMask = [];
+        currentSmoothed = [];
+        currentDespiked = [];
+        currentSpikeMask = [];
+        despikedY = [];
+        backsubY = [];
+        smoothedY = [];
+        lastFitPeaks = struct('Shape', {}, 'I', {}, 'I_err', {}, 'FWHM', {}, 'FWHM_err', {}, 'x0', {}, 'x0_err', {}, 'ExtraName', {}, 'ExtraValue', {});
+        lastFitBgDegree = -1;
+        lastFitBgCoeffs = [];
+        lastFitWorkingY = [];
+        rangeXMin = [];
+        rangeXMax = [];
+        xi = [];
+        loadedSpectra = struct('FileName', {}, 'Snapshot', {});
+        activeSpectrumIdx = 0;
+
+        clearAxesKeepLabels(ax);
+        clearResiduals();
+        peaksTable.Data = cell(0,13);
+        scroll(peaksTable, 'top');
+        removeStyle(peaksTable);
+        resultsTable.Data = cell(0,11);
+        scroll(resultsTable, 'top');
+        statsLabel.Text = 'Fit statistics: -';
+
+        spectrumDD.Items = {};
+        spectrumDD.ItemsData = [];
+        rangeMinField.Value = 0;
+        rangeMaxField.Value = 0;
+        copyPeaksBtn.Enable = 'off';
+        fitAllBtn.Enable = 'off';
+        removeSpectrumBtn.Enable = 'off';
+
+        lblFile.Text = 'File: -';
+        lblNPoints.Text = 'Points: -';
+        lblCurrentFile.Text = 'No file loaded.';
+        statusLabel.Text = 'New session started; load a spectrum to begin.';
     end
 
 % -------------------------------------------------------------------------
@@ -2219,6 +2287,95 @@ end
         try
             writetable(T, fullfile(p, f));
             statusLabel.Text = sprintf('Results exported to %s.', f);
+        catch ME
+            uialert(fig, ME.message, 'Export error');
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onExportAllResults()
+    % Combines the Results table of every loaded spectrum (not just the
+    % active one) -- the natural companion to "Fit all spectra", which
+    % otherwise leaves each spectrum's results reachable only by
+    % switching to it and using "Export results (CSV)..." one at a time.
+    % Saved as a flat one-row-per-peak CSV, or as a .mat file structured
+    % as RESULTS.<spectrum>.peak1.Center/.FWHM/... (one field per
+    % spectrum, one sub-struct per peak) depending on which the user
+    % picks in the save dialog -- the .mat layout mirrors "Save data
+    % (.mat)..."'s own p1/p2/... peak structs, just nested per spectrum
+    % instead of exported one spectrum at a time.
+        if isempty(loadedSpectra)
+            uialert(fig, 'No spectra loaded.', 'Nothing to export');
+            return
+        end
+        % LOADEDSPECTRA only reflects the active spectrum's results as of
+        % the last time it was switched away from -- refresh it here so
+        % in-progress work on the currently active spectrum is included.
+        if activeSpectrumIdx > 0
+            loadedSpectra(activeSpectrumIdx).Snapshot = captureSpectrumSnapshot();
+        end
+        hasAnyResults = false;
+        for i = 1:numel(loadedSpectra)
+            if ~isempty(loadedSpectra(i).Snapshot.ResultsData)
+                hasAnyResults = true;
+                break
+            end
+        end
+        if ~hasAnyResults
+            uialert(fig, 'No fit results to export yet for any loaded spectrum.', 'Nothing to export');
+            return
+        end
+        [f, p] = pickSaveFile({'*.csv','CSV file'; '*.mat','MAT file'}, ...
+            'Export all fit results', 'raman_fit_results_all.csv');
+        if isequal(f, 0)
+            return
+        end
+        [~, ~, ext] = fileparts(f);
+        try
+            if strcmpi(ext, '.mat')
+                % Filenames aren't valid MATLAB field names as-is (dots,
+                % dashes, spaces, a leading digit, ...); sanitized here,
+                % with the original kept in each spectrum's own FileName
+                % field so nothing is lost.
+                fieldNames = matlab.lang.makeValidName({loadedSpectra.FileName});
+                fieldNames = matlab.lang.makeUniqueStrings(fieldNames, {}, namelengthmax);
+                results = struct();
+                for i = 1:numel(loadedSpectra)
+                    rd = loadedSpectra(i).Snapshot.ResultsData;
+                    specStruct = struct('FileName', loadedSpectra(i).FileName);
+                    for row = 1:size(rd, 1)
+                        pk = struct('Shape', rd{row,2}, 'Center', rd{row,3}, 'Center_err', rd{row,4}, ...
+                            'FWHM', rd{row,5}, 'FWHM_err', rd{row,6}, 'Height', rd{row,7}, 'Height_err', rd{row,8});
+                        if ~isempty(rd{row, 9})
+                            pk.Extra = rd{row, 9};
+                            pk.Extra_err = rd{row, 10};
+                        end
+                        pk.Area = rd{row, 11};
+                        specStruct.(sprintf('peak%d', row)) = pk;
+                    end
+                    results.(fieldNames{i}) = specStruct;
+                end
+                save(fullfile(p, f), 'results');
+            else
+                varNames = {'Spectrum','Peak','Shape','Center','Center_err','FWHM','FWHM_err','Height','Height_err','Extra','Extra_err','Area'};
+                allRows = cell(0, numel(varNames));
+                for i = 1:numel(loadedSpectra)
+                    rd = loadedSpectra(i).Snapshot.ResultsData;
+                    if isempty(rd)
+                        continue
+                    end
+                    for row = 1:size(rd, 1)
+                        if isempty(rd{row, 10})
+                            rd{row, 10} = NaN;
+                        end
+                    end
+                    nameCol = repmat({loadedSpectra(i).FileName}, size(rd, 1), 1);
+                    allRows = [allRows; [nameCol, rd]]; %#ok<AGROW>
+                end
+                T = cell2table(allRows, 'VariableNames', varNames);
+                writetable(T, fullfile(p, f));
+            end
+            statusLabel.Text = sprintf('Combined results for %d spectrum/a exported to %s.', numel(loadedSpectra), f);
         catch ME
             uialert(fig, ME.message, 'Export error');
         end

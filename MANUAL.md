@@ -103,6 +103,14 @@ of the series.
 **Spectra:** selector (see [Multiple spectra at once](#multiple-spectra-at-once))
 live here.
 
+**New session (clear all)** discards every loaded spectrum, peak, and fit
+result, and returns the app to the same empty state it starts in before the
+first "Load spectrum..." — the way to start over with a different batch of
+data without closing and reopening the app. It asks for confirmation first,
+since it is the single most destructive action in the app (unlike "Remove
+selected spectrum" or "Reset to raw", which always leave at least one
+spectrum's data in place).
+
 ## Range tab
 
 The **analysis range** (cm⁻¹) restricts both the baseline calculation and
@@ -339,9 +347,24 @@ freedom, chi-square (SSE), reduced chi-square, R-squared, RMS error, and
 
 ### Export
 
-- **Export results (CSV)...** — the results table as CSV.
+- **Export results (CSV)...** — the results table (active spectrum only)
+  as CSV.
 - **Save fit figure...** — the main plot as PDF/PNG.
 - **Save data (.mat)...** — see the dedicated section below.
+- **Export all results...** — combines the results of every loaded
+  spectrum into a single file. The natural companion to **Fit all
+  spectra**: instead of switching to each spectrum in turn and exporting
+  it individually, this collects everything in one go. Spectra with no
+  fit yet are simply skipped. Choose the format in the save dialog:
+  - **.csv** — a flat table, one row per fitted peak, with a **Spectrum**
+    column giving each row's source filename.
+  - **.mat** — a struct `results` with one field per spectrum (its
+    filename, sanitized into a valid MATLAB identifier if needed — the
+    original filename is kept as that spectrum's own `.FileName` field),
+    each holding `peak1`, `peak2`, ... sub-structs, e.g.
+    `results.mySpectrum.peak1.Center`, `.FWHM`, `.Height`, `.Area`, plus
+    the shape-specific `.Extra` field when the peak's shape has one
+    (Fano/Pearson VII/True Voigt).
 
 ## Saving data (.mat)
 
