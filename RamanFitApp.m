@@ -214,7 +214,11 @@ removeSpectrumBtn = uibutton(tabFile, 'push', 'Position', [10 580 sidebarW-30 28
     'ButtonPushedFcn', @(s,e) onRemoveSpectrum());
 
 uilabel(tabFile, 'Position', [10 544 sidebarW-30 18], 'Text', 'Session:', 'FontWeight', 'bold');
-uibutton(tabFile, 'push', 'Position', [10 510 sidebarW-30 28], ...
+uibutton(tabFile, 'push', 'Position', [10 510 (sidebarW-40)/2 28], ...
+    'Text', 'Save session...', 'ButtonPushedFcn', @(s,e) onSaveSession());
+uibutton(tabFile, 'push', 'Position', [20+(sidebarW-40)/2 510 (sidebarW-40)/2 28], ...
+    'Text', 'Load session...', 'ButtonPushedFcn', @(s,e) onLoadSession());
+uibutton(tabFile, 'push', 'Position', [10 476 sidebarW-30 28], ...
     'Text', 'New session (clear all)', 'ButtonPushedFcn', @(s,e) onNewSession());
 
 % ---- Range tab (analysis range, shared by baseline + fit) -------------
@@ -869,6 +873,83 @@ end
         lblNPoints.Text = 'Points: -';
         lblCurrentFile.Text = 'No file loaded.';
         statusLabel.Text = 'New session started; load a spectrum to begin.';
+    end
+
+% -------------------------------------------------------------------------
+    function onSaveSession()
+    % Saves every loaded spectrum's full state -- raw/working data,
+    % preprocessing, analysis range, peaks, results, fit bookkeeping --
+    % as a single .mat "session" file, so the whole in-progress workspace
+    % (not just the final fit results, unlike "Save data (.mat)...") can
+    % be closed and picked back up later with "Load session...".
+        if isempty(loadedSpectra)
+            uialert(fig, 'No spectra loaded.', 'Nothing to save');
+            return
+        end
+        if activeSpectrumIdx > 0
+            loadedSpectra(activeSpectrumIdx).Snapshot = captureSpectrumSnapshot();
+        end
+        [f, p] = pickSaveFile({'*.mat','RamanFitApp session'}, 'Save session', 'raman_session.mat');
+        if isequal(f, 0)
+            return
+        end
+        session = struct('Version', 1, 'Spectra', loadedSpectra, 'ActiveIndex', activeSpectrumIdx); %#ok<NASGU>
+        try
+            save(fullfile(p, f), 'session');
+            statusLabel.Text = sprintf('Session (%d spectrum/a) saved to %s.', numel(loadedSpectra), f);
+        catch ME
+            uialert(fig, ME.message, 'Save error');
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onLoadSession()
+    % Replaces every currently loaded spectrum with the ones stored in a
+    % previously saved session file -- the inverse of "Save session...".
+    % Confirmed first if it would discard spectra currently open, the
+    % same caution as "New session (clear all)".
+        [f, p] = pickOpenFile({'*.mat','RamanFitApp session (*.mat)'}, 'Load session');
+        if isequal(f, 0)
+            return
+        end
+        try
+            S = load(fullfile(p, f));
+        catch ME
+            uialert(fig, ME.message, 'Load error');
+            return
+        end
+        if ~isfield(S, 'session') || ~isfield(S.session, 'Spectra') || isempty(S.session.Spectra)
+            uialert(fig, 'This file does not look like a RamanFitApp session.', 'Load error');
+            return
+        end
+        if ~isempty(loadedSpectra)
+            answer = uiconfirm(fig, ...
+                'Loading a session replaces every spectrum currently open. Continue?', ...
+                'Load session', 'Options', {'Load', 'Cancel'}, ...
+                'DefaultOption', 2, 'CancelOption', 2, 'Icon', 'warning');
+            if ~strcmp(answer, 'Load')
+                return
+            end
+        end
+
+        loadedSpectra = S.session.Spectra;
+        activeSpectrumIdx = min(max(round(S.session.ActiveIndex), 1), numel(loadedSpectra));
+
+        spectrumDD.Items = {loadedSpectra.FileName};
+        spectrumDD.ItemsData = 1:numel(loadedSpectra);
+        spectrumDD.Value = activeSpectrumIdx;
+        restoreSpectrumSnapshot(loadedSpectra(activeSpectrumIdx).Snapshot);
+
+        if numel(loadedSpectra) > 1
+            copyPeaksBtn.Enable = 'on';
+            fitAllBtn.Enable = 'on';
+            removeSpectrumBtn.Enable = 'on';
+        else
+            copyPeaksBtn.Enable = 'off';
+            fitAllBtn.Enable = 'off';
+            removeSpectrumBtn.Enable = 'off';
+        end
+        statusLabel.Text = sprintf('Session loaded: %d spectrum/a from %s.', numel(loadedSpectra), f);
     end
 
 % -------------------------------------------------------------------------

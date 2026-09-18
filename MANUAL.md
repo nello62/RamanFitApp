@@ -103,6 +103,16 @@ of the series.
 **Spectra:** selector (see [Multiple spectra at once](#multiple-spectra-at-once))
 live here.
 
+**Save session...** / **Load session...** save or restore the *entire*
+in-progress workspace — every loaded spectrum's raw/working data,
+preprocessing state, analysis range, peaks, results, and fit bookkeeping —
+as a single `.mat` file, so the app can be closed and picked back up later
+exactly where it was left. This is different from "Save data (.mat)..." in
+the Results tab, which exports one spectrum's *finished* curves/peak
+parameters for use outside the app, not a reloadable working state.
+**Load session...** replaces every spectrum currently open (asking for
+confirmation first if there is anything to lose).
+
 **New session (clear all)** discards every loaded spectrum, peak, and fit
 result, and returns the app to the same empty state it starts in before the
 first "Load spectrum..." — the way to start over with a different batch of
