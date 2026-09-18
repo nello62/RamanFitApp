@@ -24,9 +24,11 @@ RamanFitApp('spectrum.txt') % load a file immediately
 
 ## Features
 
-- Reads `.txt`/`.csv`/`.dat` (plain columns), `.dpt` (OPUS/Bruker),
-  `.spc` (Galactic/GRAMS binary, also used by Jobin-Yvon/Horiba systems),
-  and `.wdf` (Renishaw WiRE binary).
+- Reads `.txt`/`.csv`/`.dat` (plain columns, including "wide" multi-column
+  files where each extra column is its own spectrum sharing column 1's
+  Raman-shift axis), `.dpt` (OPUS/Bruker), `.spc` (Galactic/GRAMS binary,
+  also used by Jobin-Yvon/Horiba systems), and `.wdf` (Renishaw WiRE
+  binary).
 - Cosmic-ray spike removal (Whitaker-Hayes modified Z-score method).
 - Baseline subtraction: **backcor**, **airPLS**, **SNIP**, or **APLS**.
 - Savitzky-Golay smoothing and normalization (max=1 / area=1).

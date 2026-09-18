@@ -587,9 +587,35 @@ end
         if size(data, 2) < 2
             error('RamanFitApp:badFile', 'Expected at least two columns (wavenumber, intensity) in %s.', f);
         end
-        [rawX, ord] = sort(data(:,1));
+        [~, fname_] = fileparts(f);
+        if size(data, 2) > 2
+            % A "wide" multi-spectrum export: column 1 is a Raman-shift
+            % axis shared by every other column, each of which is its own
+            % spectrum -- a common output format for mapping/multi-sample
+            % Raman software (never produced by the .dpt/.spc/.wdf
+            % readers above, which always return exactly two columns, so
+            % this only applies to plain text/CSV files). Every column is
+            % registered as its own spectrum, like loading that many
+            % separate files at once.
+            nSpectra = size(data, 2) - 1;
+            for k = 2:size(data, 2)
+                activateSpectrum(data(:,1), data(:,k), sprintf('%s (spectrum %d)', fname_, k-1));
+            end
+            statusLabel.Text = sprintf('Loaded %d spectra from %s (wide multi-spectrum file).', nSpectra, fname_);
+            return
+        end
+        activateSpectrum(data(:,1), data(:,2), fname_);
+    end
+
+% -------------------------------------------------------------------------
+    function activateSpectrum(x, y, name)
+    % Makes (X,Y) the live spectrum and registers it in LOADEDSPECTRA
+    % under NAME -- the per-spectrum half of LOADFILE, factored out so a
+    % "wide" multi-spectrum file (see above) can run it once per column
+    % without re-deriving a filename or re-reading the file each time.
+        [rawX, ord] = sort(x);
         rawX = rawX(:);
-        rawY = data(ord, 2);
+        rawY = y(ord);
         rawY = rawY(:);
         workingY = rawY;
         currentBaseline = [];
@@ -631,13 +657,12 @@ end
         % empty default axes range was until the view is set explicitly.
         ax.XLim = [min(rawX), max(rawX)];
 
-        [~, fname_] = fileparts(f);
-        lblFile.Text = sprintf('File: %s', fname_);
+        lblFile.Text = sprintf('File: %s', name);
         lblCurrentFile.Text = lblFile.Text;
         lblNPoints.Text = sprintf('Points: %d', numel(rawX));
-        statusLabel.Text = sprintf('Loaded %s (%d points).', fname_, numel(rawX));
+        statusLabel.Text = sprintf('Loaded %s (%d points).', name, numel(rawX));
 
-        registerLoadedSpectrum(fname_);
+        registerLoadedSpectrum(name);
     end
 
 % -------------------------------------------------------------------------

@@ -28,7 +28,7 @@ RamanFitApp('spectrum.txt') % load the given file immediately
 
 | Extension | Format | Notes |
 |---|---|---|
-| `.txt`, `.csv`, `.dat` | Two columns, space/tab/comma delimited, with or without a header | Read with `readmatrix` |
+| `.txt`, `.csv`, `.dat` | Two (or more, see below) columns, space/tab/comma delimited, with or without a header | Read with `readmatrix` |
 | `.dpt` | Two comma-separated columns, no header (typical OPUS/Bruker export) | Read with `readdpt.m` |
 | `.spc` | Binary Galactic/GRAMS spectrum format (also produced/supported by many instruments, including Jobin-Yvon/Horiba systems) | Read with `readspc.m` |
 | `.wdf` | Renishaw WiRE binary spectrum format | Read with `readwdf.m` |
@@ -45,6 +45,17 @@ sub-format have been observed to come back with implausible axis/
 intensity values (see `readspc.m`'s help). If a loaded `.spc` spectrum
 looks wrong, try re-exporting it in the newer SPC format, or as
 `.txt`/`.dpt` instead.
+
+### Wide multi-spectrum text files
+
+A `.txt`/`.csv`/`.dat` file with **more than two** columns is treated as
+a "wide" multi-spectrum export: column 1 is a Raman-shift axis shared by
+every other column, each of which is its own spectrum (a common output
+format for mapping/multi-sample Raman software). Every extra column is
+loaded as its own spectrum — the same as selecting that many separate
+files at once — named `<filename> (spectrum N)`, N counting from 1 in
+file-column order. This does not apply to `.dpt`/`.spc`/`.wdf` files,
+which always carry exactly one spectrum per file already.
 
 ## Multiple spectra at once
 
